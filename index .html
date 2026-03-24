@@ -1,0 +1,1400 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>السوق الذكي | Smart Sooq 🇴🇲</title>
+<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;900&display=swap" rel="stylesheet">
+
+<!-- Firebase compat SDK — works as regular script, no imports needed -->
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-storage-compat.js"></script>
+
+<script>
+// ════════════════════════════════════════════════
+// FIREBASE INIT — runs immediately, no module scope
+// ════════════════════════════════════════════════
+var firebaseConfig = {
+  apiKey:            "AIzaSyAjxqcCZtepPphD6Xb6z3OYVnIhNQIAW-o",
+  authDomain:        "smart-sooq-oman.firebaseapp.com",
+  projectId:         "smart-sooq-oman",
+  storageBucket:     "smart-sooq-oman.firebasestorage.app",
+  messagingSenderId: "446166118148",
+  appId:             "1:446166118148:web:84fe673516ba4808376a51",
+  measurementId:     "G-40ZV3E5JQT"
+};
+firebase.initializeApp(firebaseConfig);
+var db      = firebase.firestore();
+var auth    = firebase.auth();
+var storage = firebase.storage();
+
+// ── Auth state ──
+auth.onAuthStateChanged(function(user) {
+  window.currentUser = user || null;
+  updateNavUI(user);
+  loadListings();
+  if (user) saveUserToFirestore(user);
+});
+
+// ── Save user ──
+function saveUserToFirestore(user) {
+  db.collection('users').where('uid','==',user.uid).get().then(function(snap) {
+    if (snap.empty) {
+      db.collection('users').add({
+        uid:      user.uid,
+        name:     user.displayName || '',
+        email:    user.email       || '',
+        photo:    user.photoURL    || '',
+        phone:    '',
+        joinedAt: firebase.firestore.FieldValue.serverTimestamp()
+      });
+      sessionStorage.setItem('ss_newUser','1');
+    }
+  }).catch(function(){});
+}
+
+// ── Load listings ──
+function loadListings() {
+  db.collection('listings').orderBy('createdAt','desc').get().then(function(snap) {
+    var list = [];
+    snap.forEach(function(d){ list.push(Object.assign({id:d.id}, d.data())); });
+    window.allListings = list;
+    renderCards(list, 'home-listings');
+    renderCards(list, 'search-listings');
+    var sc = document.getElementById('stat-count');
+    if (sc) sc.textContent = '+' + list.length;
+    var rc = document.getElementById('results-count');
+    if (rc) rc.textContent = list.length;
+  }).catch(function(e){ console.log('load:', e); window.allListings = []; });
+}
+
+// ── Google login ──
+function loginGoogle() {
+  if (window.pendingPage) sessionStorage.setItem('pp', window.pendingPage);
+  showToast('🔄 جاري فتح Google...');
+  var provider = new firebase.auth.GoogleAuthProvider();
+  auth.signInWithRedirect(provider);
+}
+
+// ── Handle redirect ──
+auth.getRedirectResult().then(function(result) {
+  if (result && result.user) {
+    var pp = sessionStorage.getItem('pp');
+    sessionStorage.removeItem('pp');
+    showToast('🎉 مرحباً ' + (result.user.displayName || 'بك') + '!');
+    setTimeout(function() {
+      if (sessionStorage.getItem('ss_newUser') === '1') {
+        sessionStorage.removeItem('ss_newUser');
+        showPhoneModal();
+      } else {
+        goTo(pp || 'home');
+      }
+    }, 400);
+  }
+}).catch(function(e){ if (e.code !== 'auth/null-user') console.log(e); });
+
+// ── Email login ──
+function loginWithEmail() {
+  var email = document.getElementById('login-email') ? document.getElementById('login-email').value.trim() : '';
+  var pw    = document.getElementById('login-pw')    ? document.getElementById('login-pw').value : '';
+  var err   = document.getElementById('login-err');
+  if (err) err.textContent = '';
+  if (!email) { if(err) err.textContent = '⚠️ أدخل الإيميل'; return; }
+  if (!pw)    { if(err) err.textContent = '⚠️ أدخل كلمة المرور'; return; }
+  var btn = document.querySelector('#ap-login .auth-submit');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ جاري الدخول...'; }
+  auth.signInWithEmailAndPassword(email, pw).then(function() {
+    closeM('auth-modal');
+    showToast('✅ مرحباً بعودتك!');
+    if (window.pendingPage) { var pp = window.pendingPage; window.pendingPage = null; setTimeout(function(){ goTo(pp); }, 300); }
+  }).catch(function(e) {
+    var msgs = {
+      'auth/user-not-found':    '❌ الإيميل غير مسجّل',
+      'auth/wrong-password':    '❌ كلمة المرور خاطئة',
+      'auth/invalid-credential':'❌ الإيميل أو كلمة المرور غير صحيحة',
+      'auth/invalid-email':     '❌ صيغة الإيميل غير صحيحة',
+      'auth/too-many-requests': '❌ محاولات كثيرة — انتظر قليلاً'
+    };
+    if (err) err.textContent = msgs[e.code] || ('❌ ' + e.message);
+  }).finally(function() {
+    if (btn) { btn.disabled = false; btn.textContent = '🔑 تسجيل الدخول'; }
+  });
+}
+
+// ── Email register ──
+function registerWithEmail() {
+  var name  = document.getElementById('reg-name')  ? document.getElementById('reg-name').value.trim()  : '';
+  var email = document.getElementById('reg-email') ? document.getElementById('reg-email').value.trim() : '';
+  var pw    = document.getElementById('reg-pw')    ? document.getElementById('reg-pw').value            : '';
+  var raw   = document.getElementById('reg-phone') ? document.getElementById('reg-phone').value.trim()  : '';
+  var err   = document.getElementById('reg-err');
+  if (err) err.textContent = '';
+  if (!name)                { if(err) err.textContent='⚠️ أدخل اسمك الكامل'; return; }
+  if (!email||!email.includes('@')){ if(err) err.textContent='⚠️ أدخل إيميلاً صحيحاً'; return; }
+  if (!pw||pw.length<6)     { if(err) err.textContent='⚠️ كلمة المرور 6 أحرف على الأقل'; return; }
+  if (!raw||raw.length<7)   { if(err) err.textContent='📱 رقم الهاتف العُماني إلزامي'; return; }
+  var phone = '+968' + raw;
+  var btn = document.getElementById('reg-btn');
+  if (btn) { btn.disabled=true; btn.textContent='⏳ جاري التسجيل...'; }
+  // Check phone uniqueness
+  db.collection('users').where('phone','==',phone).get().then(function(snap) {
+    if (!snap.empty) {
+      if (err) err.textContent = '❌ هذا الرقم مسجّل بحساب آخر — المستخدم موجود مسبقاً';
+      if (btn) { btn.disabled=false; btn.textContent='✨ إنشاء الحساب'; }
+      return;
+    }
+    auth.createUserWithEmailAndPassword(email, pw).then(function(cred) {
+      return cred.user.updateProfile({ displayName: name }).then(function() {
+        return db.collection('users').add({
+          uid: cred.user.uid, name: name, email: email,
+          phone: phone, photo: '', joinedAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+      });
+    }).then(function() {
+      closeM('auth-modal');
+      showToast('🎉 تم إنشاء حسابك! أهلاً ' + name);
+      setTimeout(function(){ goTo('home'); }, 300);
+    }).catch(function(e) {
+      var msgs = {
+        'auth/email-already-in-use': '❌ هذا الإيميل مسجّل بالفعل — المستخدم موجود مسبقاً',
+        'auth/invalid-email':        '❌ صيغة الإيميل غير صحيحة',
+        'auth/weak-password':        '❌ كلمة المرور ضعيفة جداً'
+      };
+      if (err) err.textContent = msgs[e.code] || ('❌ ' + e.message);
+      if (btn) { btn.disabled=false; btn.textContent='✨ إنشاء الحساب'; }
+    });
+  }).catch(function(e){
+    if (err) err.textContent = '❌ ' + e.message;
+    if (btn) { btn.disabled=false; btn.textContent='✨ إنشاء الحساب'; }
+  });
+}
+
+// ── Logout ──
+function logoutUser() {
+  auth.signOut().then(function() {
+    showToast('👋 تم تسجيل الخروج');
+    goTo('home');
+  });
+}
+
+// ── Delete listing ──
+function deleteListing(id) {
+  if (!confirm('هل تريد حذف هذا الإعلان؟')) return;
+  db.collection('listings').doc(id).delete().then(function() {
+    showToast('🗑️ تم حذف الإعلان');
+    loadListings();
+  }).catch(function(e){ showToast('❌ ' + e.message); });
+}
+
+// ── Publish listing ──
+function doPublish() {
+  if (!window.currentUser) { showAuth(); return; }
+  if (!window._phone || window._phone.replace('+968','').length < 7) {
+    showToast('📱 يجب إضافة رقم هاتفك أولاً');
+    showPhoneModal();
+    window._afterPhone = function(){ doPublish(); };
+    return;
+  }
+  var title = document.getElementById('ad-title') ? document.getElementById('ad-title').value.trim() : '';
+  var desc  = document.getElementById('ad-desc')  ? document.getElementById('ad-desc').value.trim()  : '';
+  var price = parseFloat(document.getElementById('ad-price') ? document.getElementById('ad-price').value : '') || 0;
+  var city  = document.getElementById('ad-city')  ? document.getElementById('ad-city').value          : '';
+  var cat   = window._selectedCat  || '';
+  var cond  = window._selectedCond || '';
+  var emojis = {سيارات:'🚗',عقارات:'🏠',إلكترونيات:'📱',أزياء:'👗',أثاث:'🛋️',وظائف:'💼',خدمات:'🔧',حيوانات:'🐕',أخرى:'📦'};
+  var emoji = emojis[cat] || '📦';
+  if (!title) { showToast('⚠️ أدخل عنوان الإعلان'); return; }
+  if (!cat)   { showToast('⚠️ اختر الفئة'); return; }
+  if (!city)  { showToast('⚠️ اختر المحافظة'); return; }
+  var btn = document.getElementById('publish-btn');
+  if (btn) { btn.disabled=true; btn.textContent='⏳ جاري النشر...'; }
+  db.collection('listings').add({
+    title: title, desc: desc, price: price, city: city,
+    category: cat, condition: cond, emoji: emoji,
+    sellerName:  window.currentUser.displayName || 'مستخدم',
+    sellerPhoto: window.currentUser.photoURL    || '',
+    sellerId:    window.currentUser.uid,
+    sellerEmail: window.currentUser.email       || '',
+    sellerPhone: window._phone || '',
+    views: 0, images: [],
+    createdAt: firebase.firestore.FieldValue.serverTimestamp()
+  }).then(function() {
+    closeM('post-modal');
+    resetForm();
+    showToast('🎉 تم نشر إعلانك بنجاح!');
+    loadListings();
+    goTo('search');
+  }).catch(function(e) {
+    showToast('❌ خطأ في النشر');
+    console.error(e);
+  }).finally(function() {
+    if (btn) { btn.disabled=false; btn.textContent='🚀 نشر الإعلان الآن'; }
+  });
+}
+
+// ── Save phone ──
+function savePhone() {
+  var raw   = document.getElementById('phone-inp') ? document.getElementById('phone-inp').value.trim() : '';
+  var errEl = document.getElementById('phone-err');
+  if (errEl) errEl.textContent = '';
+  if (!raw || raw.length < 7) { if(errEl) errEl.textContent='⚠️ أدخل رقماً صحيحاً (7-8 أرقام)'; return; }
+  if (!window.currentUser)    { if(errEl) errEl.textContent='⚠️ يجب تسجيل الدخول أولاً'; return; }
+  var phone = '+968' + raw;
+  var btn = document.getElementById('phone-save-btn');
+  if (btn) { btn.disabled=true; btn.textContent='⏳ جاري التحقق...'; }
+  db.collection('users').where('phone','==',phone).get().then(function(snap) {
+    var myUid = window.currentUser.uid;
+    var taken = false;
+    snap.forEach(function(d){ if (d.data().uid !== myUid) taken = true; });
+    if (taken) {
+      if (errEl) errEl.textContent = '❌ هذا الرقم مسجّل بحساب آخر — المستخدم موجود مسبقاً';
+      if (btn)  { btn.disabled=false; btn.textContent='✅ حفظ الرقم والمتابعة'; }
+      return;
+    }
+    db.collection('users').where('uid','==',myUid).get().then(function(uSnap) {
+      var updates = uSnap.docs.map(function(d){ return d.ref.update({ phone: phone }); });
+      return Promise.all(updates);
+    }).then(function() {
+      window._phone = phone;
+      closePhoneModal();
+      showToast('✅ تم حفظ رقمك بنجاح!');
+      if (window._afterPhone) { window._afterPhone(); window._afterPhone = null; }
+      else goTo('home');
+    }).catch(function(e){ if(errEl) errEl.textContent='❌ '+e.message; });
+  }).catch(function(e){ if(errEl) errEl.textContent='❌ '+e.message; })
+    .finally(function(){ if(btn){ btn.disabled=false; btn.textContent='✅ حفظ الرقم والمتابعة'; }});
+}
+
+// ── Load user phone ──
+function loadUserPhone(uid) {
+  db.collection('users').where('uid','==',uid).get().then(function(snap) {
+    snap.forEach(function(d){
+      var ph = d.data().phone || '';
+      window._phone = ph;
+      window._myDocId = d.id;
+      var sp = document.getElementById('st-phone');
+      if (sp) sp.value = ph.replace('+968','');
+    });
+  }).catch(function(){});
+}
+
+console.log('✅ Smart Sooq Firebase ready');
+</script>
+
+<style>
+:root{
+  --g:#00873E;--gd:#005C2A;--gl:#00A84F;--gs:#E8F8EE;
+  --gl2:#EEF4F1;--gm:#8FA898;--danger:#E53935;--gold:#D4A017;
+  --off:#F7FBF8;--text:#1A2E22;--mut:#607868;
+  --sh:0 8px 32px rgba(0,135,62,.18);--cd:0 4px 24px rgba(0,0,0,.08);
+  --r:16px;--rs:10px;
+}
+html,body{width:100%;margin:0;padding:0}
+body{font-family:'Cairo',sans-serif;background:var(--off);color:var(--text);overflow-x:hidden}
+*{box-sizing:border-box}
+::-webkit-scrollbar{width:5px}
+::-webkit-scrollbar-thumb{background:var(--g);border-radius:3px}
+
+/* NAV */
+nav{background:#fff;padding:0 20px;display:flex;align-items:center;justify-content:space-between;height:64px;box-shadow:0 2px 16px rgba(0,135,62,.1);position:sticky;top:0;z-index:200;gap:10px}
+.logo{display:flex;align-items:center;gap:9px;cursor:pointer;flex-shrink:0}
+.logo-icon{width:38px;height:38px;background:linear-gradient(135deg,var(--g),var(--gl));border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:18px}
+.logo-ar{font-size:15px;font-weight:900;color:var(--gd)}
+.logo-en{font-size:9px;color:var(--gm);letter-spacing:1px}
+.nav-s{flex:1;max-width:400px;display:flex;background:var(--gl2);border-radius:50px;overflow:hidden;border:2px solid transparent;transition:.2s}
+.nav-s:focus-within{border-color:var(--g);background:#fff}
+.nav-s input{flex:1;border:none;background:transparent;padding:9px 14px;font-family:'Cairo',sans-serif;font-size:13px;outline:none;direction:rtl}
+.nav-s button{background:var(--g);border:none;padding:0 14px;color:#fff;cursor:pointer;font-size:14px}
+.nav-acts{display:flex;align-items:center;gap:6px;flex-shrink:0}
+.nav-user{display:none;align-items:center;gap:7px;background:var(--gs);padding:4px 12px 4px 4px;border-radius:50px}
+.nav-uph{width:28px;height:28px;border-radius:50%;object-fit:cover;display:none}
+.nav-uav{width:28px;height:28px;border-radius:50%;background:var(--g);color:#fff;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:900}
+.nav-uname{font-size:12px;font-weight:700;color:var(--gd);max-width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.nb{border:none;padding:8px 14px;border-radius:50px;font-family:'Cairo',sans-serif;font-weight:900;font-size:12px;cursor:pointer;transition:.2s;display:flex;align-items:center;gap:5px;min-height:36px}
+.nb-in{background:linear-gradient(135deg,var(--g),var(--gl));color:#fff}
+.nb-in:hover{opacity:.9}
+.nb-out{background:var(--gl2);color:var(--mut);display:none}
+.nb-out:hover{background:#ffecec;color:var(--danger)}
+.nb-post{background:linear-gradient(135deg,var(--gold),#F5C842);color:#fff}
+.nb-lang{background:var(--gl2);color:var(--text);font-weight:900;min-width:34px;padding:8px 10px}
+
+/* MOBILE NAV */
+.mob-nav{display:none;position:fixed;bottom:0;left:0;right:0;background:#fff;border-top:2px solid var(--gl2);z-index:300;padding:6px 0 calc(6px + env(safe-area-inset-bottom))}
+.mob-items{display:flex;justify-content:space-around}
+.mob-btn{display:flex;flex-direction:column;align-items:center;gap:2px;cursor:pointer;padding:4px 12px;border-radius:10px;font-size:10px;font-weight:700;color:var(--gm);border:none;background:none;font-family:'Cairo',sans-serif}
+.mob-btn.on{color:var(--g)}
+.mob-btn-ic{font-size:20px}
+
+/* PAGES */
+.page{display:none;min-height:calc(100vh - 64px);animation:fu .3s ease}
+.page.on{display:block}
+@keyframes fu{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+
+/* HERO */
+.hero{background:linear-gradient(135deg,var(--gd) 0%,var(--g) 60%,#00C85A 100%);padding:52px 20px 68px;text-align:center;position:relative;overflow:hidden}
+.hero::before{content:'';position:absolute;inset:0;background:url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='%23fff' fill-opacity='.04'%3E%3Ccircle cx='30' cy='30' r='20'/%3E%3C/g%3E%3C/svg%3E")}
+.hero-badge{display:inline-flex;align-items:center;gap:6px;background:rgba(255,255,255,.15);color:#fff;border:1px solid rgba(255,255,255,.25);padding:5px 14px;border-radius:50px;font-size:12px;font-weight:700;margin-bottom:14px}
+.hero h1{font-size:clamp(24px,5vw,46px);font-weight:900;color:#fff;line-height:1.25;margin-bottom:10px}
+.hero h1 span{color:#90FFB8}
+.hero p{color:rgba(255,255,255,.85);font-size:14px;max-width:460px;margin:0 auto 24px;line-height:1.7}
+.hero-box{max-width:520px;margin:0 auto 28px;display:flex;flex-wrap:wrap;background:#fff;border-radius:18px;overflow:hidden;box-shadow:0 14px 44px rgba(0,0,0,.18)}
+.hero-box select{border:none;background:transparent;padding:12px 12px;font-family:'Cairo',sans-serif;font-size:13px;outline:none;border-left:1px solid var(--gl2);direction:rtl;cursor:pointer}
+.hero-box input{flex:1;border:none;background:transparent;padding:12px 14px;font-family:'Cairo',sans-serif;font-size:14px;outline:none;direction:rtl;min-width:0}
+.hero-sbtn{background:linear-gradient(135deg,var(--g),var(--gl));border:none;padding:12px 20px;color:#fff;font-family:'Cairo',sans-serif;font-weight:900;font-size:14px;cursor:pointer}
+.hero-stats{display:flex;justify-content:center;gap:clamp(14px,4vw,32px);flex-wrap:wrap}
+.hstat{color:#fff;text-align:center}
+.hstat strong{display:block;font-size:20px;font-weight:900;color:#90FFB8}
+.hstat span{font-size:11px;opacity:.8}
+
+/* TRUST */
+.trust{background:#fff;padding:12px 16px;display:flex;justify-content:center;gap:16px;flex-wrap:wrap;border-bottom:1px solid var(--gl2)}
+.ti{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:700;color:var(--mut)}
+
+/* SECTION */
+.sec{padding:36px 20px}
+.sec-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px}
+.sec-title{font-size:18px;font-weight:900;display:flex;align-items:center;gap:8px}
+.sec-title::before{content:'';width:4px;height:22px;background:linear-gradient(var(--g),var(--gl));border-radius:3px}
+.see-all{color:var(--g);font-weight:700;font-size:13px;cursor:pointer;border:none;background:none;font-family:'Cairo',sans-serif}
+
+/* CATEGORIES */
+.cats{display:grid;grid-template-columns:repeat(auto-fill,minmax(100px,1fr));gap:10px}
+.cat{background:#fff;border-radius:var(--r);padding:18px 10px;text-align:center;cursor:pointer;transition:.25s;border:2px solid transparent;box-shadow:var(--cd);position:relative;overflow:hidden}
+.cat::after{content:'';position:absolute;inset:0;background:linear-gradient(135deg,var(--g),var(--gl));opacity:0;transition:.25s}
+.cat:hover::after{opacity:1}
+.cat:hover{transform:translateY(-3px);box-shadow:var(--sh)}
+.cat:hover .ci,.cat:hover .cn,.cat:hover .cc{color:#fff;position:relative;z-index:1}
+.ci{font-size:28px;margin-bottom:6px;display:block;position:relative;z-index:1;transition:.2s}
+.cn{font-weight:700;font-size:12px;color:var(--text);display:block;position:relative;z-index:1;transition:.2s}
+.cc{font-size:10px;color:var(--gm);margin-top:2px;display:block;position:relative;z-index:1;transition:.2s}
+
+/* CARDS */
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:14px}
+.card{background:#fff;border-radius:var(--r);overflow:hidden;box-shadow:var(--cd);transition:.25s;cursor:pointer;border:2px solid transparent}
+.card:hover{transform:translateY(-3px);box-shadow:var(--sh);border-color:rgba(0,135,62,.15)}
+.card-img{width:100%;height:170px;background:var(--gl2);display:flex;align-items:center;justify-content:center;font-size:48px;position:relative}
+.card-img img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.card-badge{position:absolute;top:8px;right:8px;background:var(--g);color:#fff;font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px}
+.card-fav{position:absolute;top:8px;left:8px;width:28px;height:28px;background:#fff;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13px;cursor:pointer;border:none;box-shadow:0 2px 8px rgba(0,0,0,.12)}
+.card-body{padding:12px}
+.card-tag{display:inline-block;background:var(--gs);color:var(--gd);font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;margin-bottom:5px}
+.card-title{font-weight:700;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:4px}
+.card-price{font-size:17px;font-weight:900;color:var(--g);margin-bottom:6px}
+.card-price span{font-size:11px;font-weight:600;color:var(--gm)}
+.card-meta{display:flex;justify-content:space-between}
+.card-loc,.card-time{font-size:11px;color:var(--gm)}
+
+/* EMPTY */
+.empty{text-align:center;padding:50px 20px;grid-column:1/-1}
+.empty-icon{font-size:48px;margin-bottom:12px}
+.empty-title{font-size:17px;font-weight:900;margin-bottom:7px}
+
+/* BANNER */
+.banner{background:linear-gradient(135deg,var(--gd),var(--g));border-radius:18px;padding:clamp(20px,4vw,36px) clamp(16px,4vw,28px);display:flex;align-items:center;justify-content:space-between;gap:16px;margin:0 20px;box-shadow:var(--sh);position:relative;overflow:hidden}
+.banner::before{content:'🛒';position:absolute;left:-8px;top:-16px;font-size:100px;opacity:.07}
+.banner h2{color:#fff;font-size:clamp(16px,3vw,22px);font-weight:900;margin-bottom:4px}
+.banner p{color:rgba(255,255,255,.8);font-size:13px;line-height:1.6}
+.btn-wh{background:#fff;color:var(--gd);border:none;padding:12px 22px;border-radius:50px;font-family:'Cairo',sans-serif;font-weight:900;font-size:13px;cursor:pointer;white-space:nowrap}
+
+/* STEPS */
+.steps{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:14px}
+.step{text-align:center;padding:22px 14px;border-radius:var(--r);background:var(--off)}
+.step-n{width:42px;height:42px;background:linear-gradient(135deg,var(--g),var(--gl));border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-size:16px;font-weight:900;margin:0 auto 10px}
+.step-ic{font-size:26px;margin-bottom:6px}
+.step-t{font-weight:800;font-size:13px;margin-bottom:4px}
+.step-d{font-size:12px;color:var(--mut);line-height:1.6}
+
+/* SEARCH */
+.search-wrap{display:grid;grid-template-columns:240px 1fr;gap:18px;padding:18px;max-width:1100px;margin:0 auto}
+.filters{background:#fff;border-radius:var(--r);padding:18px;box-shadow:var(--cd);position:sticky;top:74px;height:fit-content;max-height:calc(100vh - 90px);overflow-y:auto}
+.f-hdr{font-size:14px;font-weight:900;margin-bottom:14px;padding-bottom:10px;border-bottom:2px solid var(--gl2);display:flex;justify-content:space-between}
+.f-hdr button{font-size:12px;color:var(--g);background:none;border:none;font-family:'Cairo',sans-serif;font-weight:700;cursor:pointer}
+.f-sec{margin-bottom:14px;padding-bottom:14px;border-bottom:1px solid var(--gl2)}
+.f-sec:last-child{border:none;margin:0;padding:0}
+.f-sec h4{font-size:12px;font-weight:800;margin-bottom:8px}
+.f-chk{display:flex;align-items:center;gap:7px;margin-bottom:6px;cursor:pointer;font-size:13px;color:var(--mut)}
+.f-chk input{accent-color:var(--g)}
+.range-row{display:flex;gap:6px;align-items:center}
+.range-inp{flex:1;border:2px solid var(--gl2);border-radius:8px;padding:7px 10px;font-family:'Cairo',sans-serif;font-size:12px;outline:none;direction:rtl}
+.range-inp:focus{border-color:var(--g)}
+.apply-btn{width:100%;background:linear-gradient(135deg,var(--g),var(--gl));color:#fff;border:none;padding:10px;border-radius:var(--rs);font-family:'Cairo',sans-serif;font-weight:900;font-size:13px;cursor:pointer;margin-top:4px}
+.res-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px}
+.res-txt{font-weight:700;font-size:13px;color:var(--mut)}
+.res-txt strong{color:var(--g)}
+.sort-sel{border:2px solid var(--gl2);border-radius:var(--rs);padding:7px 11px;font-family:'Cairo',sans-serif;font-size:12px;outline:none;background:#fff;cursor:pointer}
+
+/* DETAIL */
+.det-wrap{max-width:960px;margin:0 auto;padding:18px}
+.det-grid{display:grid;grid-template-columns:1fr 340px;gap:18px}
+.gallery{border-radius:var(--r);overflow:hidden;background:#fff;box-shadow:var(--cd)}
+.main-img{width:100%;height:clamp(220px,40vw,360px);display:flex;align-items:center;justify-content:center;font-size:clamp(60px,12vw,90px);background:var(--gl2);position:relative}
+.main-img img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.det-info{background:#fff;border-radius:var(--r);padding:20px;box-shadow:var(--cd);margin-top:14px}
+.det-cat{display:inline-block;background:var(--gs);color:var(--gd);font-size:11px;font-weight:700;padding:2px 10px;border-radius:20px;margin-bottom:7px}
+.det-title{font-size:19px;font-weight:900;margin-bottom:7px;line-height:1.3}
+.det-price{font-size:28px;font-weight:900;color:var(--g);margin-bottom:12px}
+.det-price span{font-size:13px;font-weight:600;color:var(--gm)}
+.det-metas{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:14px;padding-bottom:14px;border-bottom:2px solid var(--gl2)}
+.det-meta{font-size:12px;color:var(--mut)}
+.det-desc{font-size:13px;color:var(--mut);line-height:1.8;margin-bottom:14px}
+.seller-card{background:#fff;border-radius:var(--r);padding:18px;box-shadow:var(--cd);margin-bottom:12px}
+.seller-top{display:flex;align-items:center;gap:11px;margin-bottom:12px}
+.seller-av{width:48px;height:48px;border-radius:50%;background:var(--gs);display:flex;align-items:center;justify-content:center;font-size:22px;object-fit:cover}
+.seller-name{font-weight:900;font-size:14px;margin-bottom:2px}
+.seller-sub{font-size:11px;color:var(--gm)}
+.contact-btns{display:flex;flex-direction:column;gap:8px}
+.btn-chat{background:linear-gradient(135deg,var(--g),var(--gl));color:#fff;border:none;padding:12px;border-radius:var(--rs);font-family:'Cairo',sans-serif;font-weight:900;font-size:13px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:7px}
+.btn-wa{background:#25D366;color:#fff;border:none;padding:11px;border-radius:var(--rs);font-family:'Cairo',sans-serif;font-weight:900;font-size:13px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:7px}
+.safety{background:#fffbf0;border:2px solid #FFE082;border-radius:var(--rs);padding:11px;margin-bottom:12px}
+.safety h4{font-size:12px;font-weight:800;color:#8B6914;margin-bottom:6px}
+.safety li{font-size:11px;color:#8B6914;margin-bottom:3px;line-height:1.5}
+
+/* PROFILE */
+.prof-hero{background:linear-gradient(135deg,var(--gd),var(--g));padding:32px 20px 60px}
+.prof-inner{max-width:820px;margin:0 auto;display:flex;align-items:center;gap:18px;padding:0 4px}
+.prof-av{width:76px;height:76px;border-radius:50%;background:#fff;display:flex;align-items:center;justify-content:center;font-size:34px;border:4px solid rgba(255,255,255,.3);flex-shrink:0;object-fit:cover}
+.prof-name{color:#fff;font-size:19px;font-weight:900;margin-bottom:2px}
+.prof-email{color:rgba(255,255,255,.7);font-size:12px;margin-bottom:2px}
+.prof-joined{color:rgba(255,255,255,.5);font-size:11px;margin-bottom:8px}
+.pstats{background:#fff;border-radius:14px;padding:14px 20px;display:flex;justify-content:space-around;gap:10px;max-width:820px;margin:-34px auto 0;position:relative;z-index:2;box-shadow:var(--cd);flex-wrap:wrap}
+.ps{text-align:center}
+.ps strong{display:block;font-size:19px;font-weight:900;color:var(--g)}
+.ps span{font-size:11px;color:var(--gm);font-weight:600}
+.prof-body{max-width:820px;margin:0 auto;padding:22px 20px}
+.ptabs{display:flex;gap:3px;background:#fff;border-radius:12px;padding:4px;box-shadow:var(--cd);margin-bottom:20px;overflow-x:auto}
+.ptab{flex:1;text-align:center;padding:9px 10px;font-weight:700;font-size:12px;cursor:pointer;border-radius:9px;transition:.2s;color:var(--gm);white-space:nowrap;border:none;background:none;font-family:'Cairo',sans-serif}
+.ptab.on{background:var(--g);color:#fff}
+.ptab-panel{display:none}
+.ptab-panel.on{display:block;animation:fu .3s ease}
+.mini-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px}
+.mini-card{background:#fff;border-radius:var(--r);overflow:hidden;box-shadow:var(--cd);transition:.2s;cursor:pointer}
+.mini-card:hover{transform:translateY(-2px);box-shadow:var(--sh)}
+.mini-img{height:120px;background:var(--gl2);display:flex;align-items:center;justify-content:center;font-size:38px;position:relative}
+.m-st{position:absolute;top:6px;right:6px;font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;background:var(--gs);color:var(--gd)}
+.mini-body{padding:10px}
+.mini-t{font-weight:700;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:3px}
+.mini-p{font-weight:900;color:var(--g);font-size:13px;margin-bottom:6px}
+.mini-loc{font-size:11px;color:var(--gm);margin-bottom:6px}
+.mini-acts{display:flex;gap:4px}
+.mini-btn{flex:1;border:none;padding:5px;border-radius:6px;font-family:'Cairo',sans-serif;font-size:11px;font-weight:700;cursor:pointer}
+.mini-btn.e{background:var(--gs);color:var(--gd)}
+.mini-btn.d{background:#fff0f0;color:var(--danger)}
+.add-card{border:2px dashed var(--g);cursor:pointer;display:flex;align-items:center;justify-content:center;min-height:180px;background:var(--gs);border-radius:var(--r);transition:.2s}
+.add-card:hover{background:rgba(0,135,62,.1)}
+.scard{background:#fff;border-radius:var(--r);padding:20px;box-shadow:var(--cd);margin-bottom:14px}
+.scard-t{font-size:14px;font-weight:900;margin-bottom:14px;padding-bottom:10px;border-bottom:2px solid var(--gl2)}
+.sg{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.si{width:100%;border:2px solid var(--gl2);border-radius:var(--rs);padding:10px 12px;font-family:'Cairo',sans-serif;font-size:13px;color:var(--text);outline:none;direction:rtl;background:#fff}
+.si:focus{border-color:var(--g)}
+.tog-row{display:flex;align-items:center;justify-content:space-between;padding:11px 0;border-bottom:1px solid var(--gl2)}
+.tog-row:last-child{border:none}
+.ti strong{display:block;font-weight:700;font-size:13px;margin-bottom:2px}
+.ti span{font-size:11px;color:var(--gm)}
+.tog{position:relative;width:42px;height:22px;flex-shrink:0}
+.tog input{opacity:0;width:0;height:0}
+.slider{position:absolute;inset:0;background:var(--gl2);border-radius:11px;cursor:pointer;transition:.3s}
+.slider::before{content:'';position:absolute;width:16px;height:16px;border-radius:50%;background:#fff;left:3px;top:3px;transition:.3s}
+input:checked+.slider{background:var(--g)}
+input:checked+.slider::before{transform:translateX(20px)}
+
+/* POST MODAL */
+.modal-ov{position:fixed;inset:0;background:rgba(0,0,0,.55);backdrop-filter:blur(4px);z-index:500;display:none;align-items:center;justify-content:center;padding:12px}
+.modal-ov.on{display:flex;animation:fu .3s ease}
+.modal{background:#fff;border-radius:20px;width:100%;max-width:500px;max-height:min(90vh,90dvh);overflow-y:auto;direction:rtl}
+.modal-hdr{background:linear-gradient(135deg,var(--gd),var(--g));padding:20px 24px;border-radius:20px 20px 0 0;display:flex;justify-content:space-between;align-items:center}
+.modal-hdr h2{color:#fff;font-size:17px;font-weight:900}
+.modal-x{background:rgba(255,255,255,.2);border:none;width:32px;height:32px;border-radius:50%;cursor:pointer;font-size:15px;color:#fff;display:flex;align-items:center;justify-content:center}
+.modal-body{padding:20px}
+.psteps{display:flex;margin-bottom:20px}
+.pstep{flex:1;text-align:center;position:relative}
+.pstep::after{content:'';position:absolute;top:12px;left:0;right:0;height:2px;background:var(--gl2);z-index:0}
+.pstep:last-child::after{display:none}
+.pstep-n{width:24px;height:24px;border-radius:50%;background:var(--gl2);color:var(--gm);display:flex;align-items:center;justify-content:center;font-weight:900;font-size:11px;margin:0 auto 5px;position:relative;z-index:1;transition:.3s}
+.pstep.cur .pstep-n,.pstep.done .pstep-n{background:var(--g);color:#fff}
+.pstep.cur .pstep-n{box-shadow:0 0 0 4px rgba(0,135,62,.2)}
+.pstep-l{font-size:10px;color:var(--gm);font-weight:700}
+.pstep.cur .pstep-l,.pstep.done .pstep-l{color:var(--g)}
+.fstep{display:none}
+.fstep.on{display:block;animation:fu .3s ease}
+.fg{margin-bottom:14px}
+.fl{display:block;font-weight:700;font-size:13px;margin-bottom:5px}
+.fi,.fta{width:100%;border:2px solid var(--gl2);border-radius:var(--rs);padding:10px 13px;font-family:'Cairo',sans-serif;font-size:13px;color:var(--text);outline:none;transition:.2s;direction:rtl;background:#fff}
+.fi:focus,.fta:focus{border-color:var(--g)}
+.fta{resize:vertical;min-height:80px}
+.cat-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:7px}
+.cat-opt{border:2px solid var(--gl2);border-radius:var(--rs);padding:11px 5px;text-align:center;cursor:pointer;transition:.2s;font-size:11px;font-weight:700;color:var(--mut)}
+.cat-opt:hover,.cat-opt.on{border-color:var(--g);color:var(--g);background:var(--gs)}
+.cat-opt-ic{font-size:22px;display:block;margin-bottom:3px}
+.cond-grid{display:grid;grid-template-columns:1fr 1fr;gap:7px}
+.cond-opt{border:2px solid var(--gl2);border-radius:var(--rs);padding:10px;text-align:center;cursor:pointer;transition:.2s;font-size:12px;font-weight:700;color:var(--mut)}
+.cond-opt:hover,.cond-opt.on{border-color:var(--g);background:var(--gs);color:var(--g)}
+.boost-opts{display:flex;flex-direction:column;gap:9px}
+.boost-opt{border:2px solid var(--gl2);border-radius:var(--rs);padding:13px;cursor:pointer;transition:.2s;display:flex;align-items:center;gap:11px}
+.boost-opt:hover,.boost-opt.on{border-color:var(--g);background:var(--gs)}
+.b-ic{font-size:24px;flex-shrink:0}
+.b-name{font-weight:800;font-size:13px;margin-bottom:1px}
+.b-desc{font-size:11px;color:var(--mut)}
+.b-price{margin-right:auto;font-weight:900;color:var(--g);font-size:13px;flex-shrink:0}
+.modal-nav{display:flex;gap:8px;margin-top:18px}
+.btn-nx{flex:1;background:linear-gradient(135deg,var(--g),var(--gl));color:#fff;border:none;padding:12px;border-radius:var(--rs);font-family:'Cairo',sans-serif;font-weight:900;font-size:14px;cursor:pointer;transition:.2s}
+.btn-nx:hover{opacity:.9}
+.btn-nx:disabled{opacity:.6;cursor:not-allowed}
+.btn-bk{background:var(--gl2);color:var(--text);border:none;padding:12px 18px;border-radius:var(--rs);font-family:'Cairo',sans-serif;font-weight:900;font-size:14px;cursor:pointer}
+.ok-sc{text-align:center;padding:14px 0}
+.ok-ic{font-size:58px;margin-bottom:12px;display:block}
+.ok-t{font-size:20px;font-weight:900;color:var(--g);margin-bottom:6px}
+
+/* AUTH MODAL */
+.auth-ov{position:fixed;inset:0;background:rgba(0,0,0,.6);backdrop-filter:blur(6px);z-index:400;display:none;align-items:center;justify-content:center;padding:16px}
+.auth-ov.on{display:flex;animation:fu .3s ease}
+.auth-card{background:#fff;border-radius:22px;width:100%;max-width:390px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.25)}
+.auth-banner{background:linear-gradient(135deg,var(--gd),var(--g));padding:22px;text-align:center;position:relative}
+.auth-x{position:absolute;top:12px;left:13px;background:rgba(255,255,255,.2);border:none;width:30px;height:30px;border-radius:50%;cursor:pointer;font-size:14px;color:#fff;display:flex;align-items:center;justify-content:center}
+.auth-body{padding:18px 22px 22px}
+.auth-tabs{display:flex;background:var(--gl2);border-radius:9px;padding:3px;margin-bottom:16px;gap:2px}
+.auth-tab{flex:1;text-align:center;padding:8px;font-family:'Cairo',sans-serif;font-size:13px;font-weight:700;border-radius:7px;cursor:pointer;border:none;background:none;color:var(--gm);transition:.2s}
+.auth-tab.on{background:#fff;color:var(--gd);box-shadow:0 1px 6px rgba(0,0,0,.08)}
+.auth-panel{display:none}
+.auth-panel.on{display:block;animation:fu .2s ease}
+.auth-or{display:flex;align-items:center;gap:8px;margin:11px 0;color:var(--gm);font-size:12px}
+.auth-or::before,.auth-or::after{content:'';flex:1;height:1px;background:var(--gl2)}
+.auth-inp{width:100%;border:2px solid var(--gl2);border-radius:var(--rs);padding:10px 13px;font-family:'Cairo',sans-serif;font-size:13px;outline:none;direction:rtl;transition:.2s;color:var(--text);margin-bottom:8px;display:block}
+.auth-inp:focus{border-color:var(--g)}
+.auth-phone-row{display:flex;margin-bottom:8px}
+.auth-phone-cc{background:var(--gl2);padding:10px 11px;border-radius:var(--rs) 0 0 var(--rs);font-weight:700;font-size:13px;white-space:nowrap;color:var(--text);display:flex;align-items:center}
+.auth-phone-inp{flex:1;border:2px solid var(--gl2);border-radius:0 var(--rs) var(--rs) 0;border-left:none;padding:10px 13px;font-family:'Cairo',sans-serif;font-size:13px;outline:none;direction:ltr}
+.auth-phone-inp:focus{border-color:var(--g)}
+.auth-err{color:var(--danger);font-size:12px;font-weight:700;min-height:16px;margin-bottom:7px}
+.auth-submit{width:100%;background:linear-gradient(135deg,var(--g),var(--gl));color:#fff;border:none;padding:12px;border-radius:var(--rs);font-family:'Cairo',sans-serif;font-weight:900;font-size:14px;cursor:pointer;box-shadow:var(--sh);transition:.2s}
+.auth-submit:hover{opacity:.9}
+.auth-submit:disabled{opacity:.6;cursor:not-allowed}
+.btn-goo{width:100%;border:2px solid var(--gl2);background:#fff;border-radius:var(--rs);padding:11px;font-family:'Cairo',sans-serif;font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:9px;font-weight:700;transition:.2s}
+.btn-goo:hover{border-color:var(--g);background:var(--gs)}
+
+/* PHONE MODAL */
+.phone-ov{position:fixed;inset:0;background:rgba(0,0,0,.6);backdrop-filter:blur(6px);z-index:450;display:none;align-items:center;justify-content:center;padding:16px}
+.phone-ov.on{display:flex;animation:fu .3s ease}
+.phone-card{background:#fff;border-radius:22px;padding:30px 26px;width:100%;max-width:380px;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.25)}
+.phone-row{display:flex;border:2px solid var(--gl2);border-radius:var(--rs);overflow:hidden;margin-bottom:8px}
+.phone-row:focus-within{border-color:var(--g)}
+.phone-cc{background:var(--gl2);padding:11px 12px;font-weight:700;font-size:14px;white-space:nowrap;border:none;font-family:'Cairo',sans-serif}
+.phone-inp{flex:1;border:none;padding:11px 13px;font-family:'Cairo',sans-serif;font-size:15px;outline:none;direction:ltr}
+.phone-err{color:var(--danger);font-size:12px;font-weight:700;min-height:16px;margin-bottom:9px}
+.phone-btn{width:100%;background:linear-gradient(135deg,var(--g),var(--gl));color:#fff;border:none;padding:12px;border-radius:var(--rs);font-family:'Cairo',sans-serif;font-weight:900;font-size:14px;cursor:pointer;margin-bottom:8px}
+.phone-btn:disabled{opacity:.6}
+
+/* FOOTER */
+footer{background:var(--text);color:rgba(255,255,255,.7);padding:36px 20px 20px}
+.ft-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:24px;margin-bottom:24px}
+.ft-ar{font-size:17px;font-weight:900;color:#fff}
+.ft-en{font-size:10px;color:var(--gl);letter-spacing:1px}
+.ft-desc{font-size:12px;line-height:1.7;margin-top:8px;color:rgba(255,255,255,.5)}
+.fc h4{color:#fff;font-weight:800;margin-bottom:10px;font-size:13px}
+.fc a{display:block;color:rgba(255,255,255,.5);text-decoration:none;font-size:12px;margin-bottom:6px;cursor:pointer}
+.fc a:hover{color:var(--gl)}
+.ft-bot{border-top:1px solid rgba(255,255,255,.08);padding-top:14px;display:flex;justify-content:space-between;font-size:11px;flex-wrap:wrap;gap:7px}
+
+/* TOAST */
+.toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%) translateY(100px);background:var(--gd);color:#fff;padding:11px 22px;border-radius:50px;font-weight:700;font-size:13px;z-index:9999;transition:transform .4s cubic-bezier(.175,.885,.32,1.275);box-shadow:var(--sh);pointer-events:none;white-space:nowrap}
+.toast.on{transform:translateX(-50%) translateY(0)}
+
+/* RESPONSIVE */
+@media(max-width:768px){
+  .mob-nav{display:block}
+  body{padding-bottom:70px}
+  .nav-s{display:none}
+  .nav-uname{display:none}
+  .hero{padding:28px 14px 44px}
+  .banner{flex-direction:column;text-align:center;margin:0 12px;padding:22px 16px}
+  .sec{padding:24px 12px}
+  .search-wrap{grid-template-columns:1fr;padding:12px}
+  .filters{position:static}
+  .det-grid{grid-template-columns:1fr}
+  .prof-inner{flex-direction:column;text-align:center}
+  .sg{grid-template-columns:1fr}
+  .cards{grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px}
+  .cats{grid-template-columns:repeat(4,1fr);gap:8px}
+  .modal-ov{padding:8px}
+  .modal{border-radius:16px}
+}
+@media(max-width:400px){
+  .cats{grid-template-columns:repeat(4,1fr)}
+  .cards{grid-template-columns:1fr 1fr}
+  .nb{padding:7px 9px;font-size:11px}
+}
+
+/* ══ PHOTO UPLOAD ══ */
+.photo-drop{border:2px dashed var(--g);border-radius:var(--r);padding:22px;text-align:center;cursor:pointer;background:var(--gs);transition:.2s;position:relative;overflow:hidden}
+.photo-drop input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%}
+.photo-drop:hover{background:rgba(0,135,62,.1)}
+.photo-previews{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+.photo-prev-wrap{position:relative}
+.photo-prev{width:68px;height:68px;border-radius:8px;object-fit:cover;border:2px solid var(--gl2)}
+.photo-prev-del{position:absolute;top:-5px;right:-5px;background:var(--danger);color:#fff;border:none;border-radius:50%;width:17px;height:17px;font-size:9px;cursor:pointer;display:flex;align-items:center;justify-content:center;font-weight:900;line-height:1}
+/* ══ GALLERY ══ */
+.gal-thumbs{display:flex;gap:7px;margin-top:8px;overflow-x:auto;padding-bottom:4px}
+.gal-thumb{width:60px;height:50px;border-radius:7px;overflow:hidden;border:2px solid transparent;cursor:pointer;flex-shrink:0;background:var(--gl2);display:flex;align-items:center;justify-content:center;font-size:18px;transition:.2s}
+.gal-thumb.on,.gal-thumb:hover{border-color:var(--g)}
+.gal-thumb img{width:100%;height:100%;object-fit:cover}
+/* ══ STARS ══ */
+.stars-row{display:flex;gap:3px;direction:ltr;margin:6px 0}
+.star{font-size:22px;cursor:pointer;color:#ddd;transition:.2s;line-height:1}
+.star.on{color:#F5C842}
+/* ══ REVIEWS ══ */
+.review-card{background:#fff;border-radius:var(--r);padding:16px;box-shadow:var(--cd);margin-bottom:14px}
+.review-item{padding:10px 0;border-bottom:1px solid var(--gl2)}
+.review-item:last-child{border:none}
+.review-top{display:flex;align-items:center;gap:8px;margin-bottom:5px}
+.review-av{width:30px;height:30px;border-radius:50%;background:var(--gs);display:flex;align-items:center;justify-content:center;font-size:13px;flex-shrink:0}
+.review-name{font-weight:700;font-size:13px}
+.review-date{font-size:10px;color:var(--gm);margin-right:auto}
+.review-text{font-size:13px;color:var(--mut);line-height:1.6}
+.add-review-box{background:var(--gs);border-radius:var(--r);padding:14px;margin-top:10px}
+.review-textarea{width:100%;border:2px solid var(--gl2);border-radius:var(--rs);padding:9px 12px;font-family:'Cairo',sans-serif;font-size:13px;outline:none;resize:none;min-height:60px;direction:rtl}
+.review-textarea:focus{border-color:var(--g)}
+.review-submit{background:linear-gradient(135deg,var(--g),var(--gl));color:#fff;border:none;padding:8px 18px;border-radius:50px;font-family:'Cairo',sans-serif;font-weight:900;font-size:13px;cursor:pointer;margin-top:7px}
+/* ══ CHAT ══ */
+.chat-layout{display:grid;grid-template-columns:280px 1fr;height:calc(100vh - 64px)}
+.chat-list{border-left:1px solid var(--gl2);background:#fff;overflow-y:auto;display:flex;flex-direction:column}
+.chat-list-hdr{padding:14px;border-bottom:1px solid var(--gl2);flex-shrink:0}
+.chat-list-hdr h2{font-size:15px;font-weight:900;margin-bottom:8px}
+.chat-item{display:flex;align-items:center;gap:10px;padding:12px 14px;cursor:pointer;transition:.2s;border-bottom:1px solid var(--gl2);flex-shrink:0}
+.chat-item:hover,.chat-item.on{background:var(--gs)}
+.chat-item.on{border-right:3px solid var(--g)}
+.c-ava{width:40px;height:40px;border-radius:50%;background:var(--gs);display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0}
+.c-info{flex:1;min-width:0}
+.c-name{font-weight:700;font-size:13px}
+.c-prev{font-size:11px;color:var(--mut);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px}
+.chat-win{display:flex;flex-direction:column;background:var(--off)}
+.chat-win-hdr{background:#fff;padding:12px 16px;border-bottom:1px solid var(--gl2);display:flex;align-items:center;gap:10px;flex-shrink:0}
+.chat-win-ava{width:36px;height:36px;border-radius:50%;background:var(--gs);display:flex;align-items:center;justify-content:center;font-size:16px}
+.chat-win-name{font-size:14px;font-weight:900}
+.chat-win-status{font-size:11px;color:#44CC66;font-weight:600}
+.chat-msgs{flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:10px}
+.msg{max-width:72%;animation:fu .25s ease}
+.msg.me{align-self:flex-end}
+.msg.them{align-self:flex-start}
+.msg-bub{padding:10px 14px;border-radius:16px;font-size:13px;line-height:1.6}
+.msg.me .msg-bub{background:linear-gradient(135deg,var(--g),var(--gl));color:#fff;border-bottom-left-radius:3px}
+.msg.them .msg-bub{background:#fff;color:var(--text);border-bottom-right-radius:3px;box-shadow:0 2px 8px rgba(0,0,0,.07)}
+.msg-t{font-size:10px;color:var(--gm);margin-top:2px}
+.msg.me .msg-t{text-align:right}
+.chat-inp-wrap{background:#fff;padding:10px 12px;border-top:1px solid var(--gl2);display:flex;align-items:center;gap:7px;flex-shrink:0}
+.chat-inp{flex:1;border:2px solid var(--gl2);border-radius:50px;padding:9px 14px;font-family:'Cairo',sans-serif;font-size:13px;outline:none;direction:rtl}
+.chat-inp:focus{border-color:var(--g)}
+.send-btn{width:38px;height:38px;border-radius:50%;background:linear-gradient(135deg,var(--g),var(--gl));border:none;color:#fff;font-size:15px;cursor:pointer;flex-shrink:0}
+/* ══ ADMIN ══ */
+.adm-login{position:fixed;inset:0;background:linear-gradient(135deg,#0f172a,#1e3a5f);display:none;align-items:center;justify-content:center;z-index:600;padding:20px}
+.adm-login.on{display:flex}
+.adm-lcard{background:#fff;border-radius:22px;padding:36px 30px;width:100%;max-width:360px;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.4)}
+.adm-pw{width:100%;border:2px solid var(--gl2);border-radius:var(--rs);padding:11px;font-family:'Cairo',sans-serif;font-size:15px;outline:none;text-align:center;letter-spacing:3px;direction:ltr;margin-bottom:10px}
+.adm-pw:focus{border-color:var(--g)}
+.adm-pw-btn{width:100%;background:linear-gradient(135deg,#0f172a,#1e3a5f);color:#fff;border:none;padding:12px;border-radius:var(--rs);font-family:'Cairo',sans-serif;font-weight:900;font-size:14px;cursor:pointer}
+.adm-err{color:var(--danger);font-size:12px;font-weight:700;min-height:16px;margin-top:6px}
+.adm-wrap{display:grid;grid-template-columns:190px 1fr;min-height:calc(100vh - 64px)}
+.adm-side{background:#0f172a;padding:12px 0;display:flex;flex-direction:column}
+.adm-side-logo{padding:14px 16px 16px;border-bottom:1px solid rgba(255,255,255,.08);margin-bottom:8px}
+.adm-side-logo div:first-child{font-size:13px;font-weight:900;color:#fff}
+.adm-side-logo div:last-child{font-size:9px;color:rgba(255,255,255,.4);letter-spacing:1px}
+.adm-nav{flex:1}
+.adm-nav-btn{display:flex;align-items:center;gap:8px;padding:10px 16px;color:rgba(255,255,255,.55);cursor:pointer;font-size:13px;font-weight:700;transition:.2s;border:none;background:none;font-family:'Cairo',sans-serif;width:100%;text-align:right;border-right:3px solid transparent}
+.adm-nav-btn:hover{background:rgba(255,255,255,.06);color:#fff}
+.adm-nav-btn.on{background:rgba(255,255,255,.1);color:#fff;border-right-color:#90FFB8}
+.adm-nav-btn span:first-child{font-size:16px}
+.adm-side-bot{padding:12px 16px;border-top:1px solid rgba(255,255,255,.08)}
+.adm-out-btn{width:100%;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);color:rgba(255,255,255,.6);padding:8px;border-radius:8px;font-family:'Cairo',sans-serif;font-size:12px;font-weight:700;cursor:pointer}
+.adm-content{padding:20px;background:var(--off);overflow-y:auto}
+.adm-topbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;flex-wrap:wrap;gap:8px}
+.adm-topbar h2{font-size:17px;font-weight:900}
+.adm-refresh{background:#fff;border:2px solid var(--gl2);border-radius:50px;padding:7px 14px;font-family:'Cairo',sans-serif;font-size:12px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:5px}
+.adm-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;margin-bottom:20px}
+.adm-stat{background:#fff;border-radius:var(--r);padding:16px;box-shadow:var(--cd);display:flex;align-items:center;gap:11px}
+.adm-stat-ic{width:44px;height:44px;border-radius:11px;display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0}
+.adm-stat-ic.g{background:var(--gs)}
+.adm-stat-ic.b{background:#EEF4FF}
+.adm-stat-val{font-size:22px;font-weight:900}
+.adm-stat-lbl{font-size:11px;color:var(--mut)}
+.adm-panel{display:none}
+.adm-panel.on{display:block;animation:fu .3s ease}
+.adm-card{background:#fff;border-radius:var(--r);box-shadow:var(--cd);overflow:hidden;margin-bottom:14px}
+.adm-card-hdr{padding:13px 16px;border-bottom:1px solid var(--gl2);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:7px}
+.adm-card-hdr h3{font-size:14px;font-weight:900}
+.adm-search{border:2px solid var(--gl2);border-radius:50px;padding:6px 12px;font-family:'Cairo',sans-serif;font-size:12px;outline:none;direction:rtl;min-width:170px}
+.adm-search:focus{border-color:var(--g)}
+.adm-tbl-wrap{overflow-x:auto}
+.adm-tbl{width:100%;border-collapse:collapse;font-size:13px}
+.adm-tbl th{background:var(--off);padding:9px 12px;text-align:right;font-weight:800;font-size:11px;color:var(--mut);border-bottom:2px solid var(--gl2);white-space:nowrap}
+.adm-tbl td{padding:10px 12px;border-bottom:1px solid var(--gl2);vertical-align:middle}
+.adm-tbl tr:last-child td{border:none}
+.adm-tbl tr:hover td{background:var(--gs)}
+.adm-badge-g{display:inline-block;padding:2px 8px;border-radius:20px;font-size:10px;font-weight:700;background:var(--gs);color:var(--gd)}
+.adm-badge-b{display:inline-block;padding:2px 8px;border-radius:20px;font-size:10px;font-weight:700;background:#EEF4FF;color:#1a56db}
+.adm-del-btn{background:#fff0f0;color:var(--danger);border:none;padding:4px 9px;border-radius:6px;font-family:'Cairo',sans-serif;font-size:11px;font-weight:700;cursor:pointer}
+.adm-del-btn:hover{background:var(--danger);color:#fff}
+.adm-empty{text-align:center;padding:32px;color:var(--gm);font-size:13px}
+.adm-bar-row{margin-bottom:10px}
+.adm-bar-top{display:flex;justify-content:space-between;font-size:12px;font-weight:700;margin-bottom:4px}
+.adm-bar-track{height:7px;background:var(--gl2);border-radius:4px;overflow:hidden}
+.adm-bar-fill{height:100%;background:linear-gradient(90deg,var(--g),var(--gl));border-radius:4px}
+.adm-conf{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:700;display:none;align-items:center;justify-content:center;padding:20px}
+.adm-conf.on{display:flex}
+.adm-conf-card{background:#fff;border-radius:18px;padding:26px;max-width:300px;width:100%;text-align:center;box-shadow:0 16px 50px rgba(0,0,0,.2)}
+.adm-conf-yes{background:var(--danger);color:#fff;border:none;padding:10px 20px;border-radius:var(--rs);font-family:'Cairo',sans-serif;font-weight:900;font-size:13px;cursor:pointer;margin-left:7px}
+.adm-conf-no{background:var(--gl2);color:var(--text);border:none;padding:10px 20px;border-radius:var(--rs);font-family:'Cairo',sans-serif;font-weight:900;font-size:13px;cursor:pointer}
+@media(max-width:768px){
+  .chat-layout{grid-template-columns:1fr}
+  .chat-list{display:none}
+  .adm-wrap{grid-template-columns:1fr}
+  .adm-side{flex-direction:row;overflow-x:auto;padding:6px}
+  .adm-side-logo,.adm-side-bot{display:none}
+  .adm-nav-btn{flex-direction:column;gap:2px;padding:8px 10px;font-size:10px;border-right:none;border-bottom:3px solid transparent}
+  .adm-nav-btn.on{border-bottom-color:#90FFB8}
+  .adm-content{padding:12px}
+}
+</style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav>
+  <div class="logo" id="logo-btn" onclick="handleLogoClick()">
+    <div class="logo-icon">🛍️</div>
+    <div><div class="logo-ar">السوق الذكي</div><div class="logo-en">SMART SOOQ</div></div>
+  </div>
+  <div class="nav-s">
+    <input type="text" id="nav-q" placeholder="ابحث عن أي شيء..." onkeydown="if(event.key==='Enter')doSearch()">
+    <button onclick="doSearch()">🔍</button>
+  </div>
+  <div class="nav-acts">
+    <div class="nav-user" id="nav-user">
+      <img class="nav-uph" id="nav-uph" src="" alt="">
+      <div class="nav-uav" id="nav-uav">👤</div>
+      <span class="nav-uname" id="nav-uname"></span>
+    </div>
+    <button class="nb nb-in"   id="btn-login"  onclick="showAuth()">🔑 دخول</button>
+    <button class="nb nb-out"  id="btn-logout" onclick="logoutUser()">🚪 خروج</button>
+    <button class="nb nb-post" onclick="openPost()">+ أضف إعلان</button>
+    <button class="nb nb-lang" id="lang-btn"   onclick="toggleLang()">EN</button>
+  </div>
+</nav>
+
+<!-- MOBILE NAV -->
+<div class="mob-nav">
+  <div class="mob-items">
+    <button class="mob-btn on" id="mn-home"    onclick="goTo('home')">   <span class="mob-btn-ic">🏠</span>الرئيسية</button>
+    <button class="mob-btn"    id="mn-search"  onclick="goTo('search')"> <span class="mob-btn-ic">🔍</span>بحث</button>
+    <button class="mob-btn"    id="mn-post"    onclick="openPost()">     <span class="mob-btn-ic">➕</span>أضف</button>
+    <button class="mob-btn"    id="mn-chat"    onclick="reqAuth('chat')">   <span class="mob-btn-ic">💬</span>رسائل</button>
+    <button class="mob-btn"    id="mn-profile" onclick="reqAuth('profile')"><span class="mob-btn-ic">👤</span>حسابي</button>
+  </div>
+</div>
+
+<!-- HOME -->
+<div class="page on" id="page-home">
+  <section class="hero">
+    <div class="hero-badge">🌟 السوق الأذكى في عُمان</div>
+    <h1>بيع واشتري بكل <span>سهولة وأمان</span></h1>
+    <p>آلاف الإعلانات من سيارات وعقارات وإلكترونيات — مجاناً وبدون عمولة</p>
+    <div class="hero-box">
+      <button class="hero-sbtn" onclick="doSearch()">🔍</button>
+      <input type="text" id="hero-q" placeholder="ابحث عن أي شيء..." onkeydown="if(event.key==='Enter')doSearch()">
+      <select id="hero-cat">
+        <option value="">كل الفئات</option>
+        <option>سيارات</option><option>عقارات</option><option>إلكترونيات</option>
+        <option>أزياء</option><option>أثاث</option><option>وظائف</option>
+        <option>خدمات</option><option>حيوانات</option>
+      </select>
+    </div>
+    <div class="hero-stats">
+      <div class="hstat"><strong id="stat-count">...</strong><span>إعلان نشط</span></div>
+      <div class="hstat"><strong>مجاناً</strong><span>النشر والتصفح</span></div>
+      <div class="hstat"><strong>🇴🇲</strong><span>عُماني 100٪</span></div>
+    </div>
+  </section>
+  <div class="trust">
+    <div class="ti">🔒 آمن ومضمون</div>
+    <div class="ti">✅ إعلانات موثقة</div>
+    <div class="ti">⚡ نشر فوري</div>
+    <div class="ti">🇴🇲 عُماني 100٪</div>
+    <div class="ti">💬 تواصل مباشر</div>
+  </div>
+  <section class="sec">
+    <div class="sec-hdr"><h2 class="sec-title">تصفح الفئات</h2><button class="see-all" onclick="goTo('search')">كل الفئات ◄</button></div>
+    <div class="cats">
+      <div class="cat" onclick="filterCat('سيارات')">    <span class="ci">🚗</span><span class="cn">سيارات</span>    <span class="cc">تصفح الآن</span></div>
+      <div class="cat" onclick="filterCat('عقارات')">    <span class="ci">🏠</span><span class="cn">عقارات</span>    <span class="cc">تصفح الآن</span></div>
+      <div class="cat" onclick="filterCat('إلكترونيات')"><span class="ci">📱</span><span class="cn">إلكترونيات</span><span class="cc">تصفح الآن</span></div>
+      <div class="cat" onclick="filterCat('أزياء')">     <span class="ci">👗</span><span class="cn">أزياء</span>     <span class="cc">تصفح الآن</span></div>
+      <div class="cat" onclick="filterCat('أثاث')">      <span class="ci">🛋️</span><span class="cn">أثاث</span>     <span class="cc">تصفح الآن</span></div>
+      <div class="cat" onclick="filterCat('وظائف')">     <span class="ci">💼</span><span class="cn">وظائف</span>     <span class="cc">تصفح الآن</span></div>
+      <div class="cat" onclick="filterCat('خدمات')">     <span class="ci">🔧</span><span class="cn">خدمات</span>     <span class="cc">تصفح الآن</span></div>
+      <div class="cat" onclick="filterCat('حيوانات')">   <span class="ci">🐕</span><span class="cn">حيوانات</span>   <span class="cc">تصفح الآن</span></div>
+    </div>
+  </section>
+  <section class="sec" style="background:#fff;padding-top:32px;padding-bottom:40px">
+    <div class="sec-hdr"><h2 class="sec-title">🔥 أحدث الإعلانات</h2><button class="see-all" onclick="goTo('search')">عرض الكل ◄</button></div>
+    <div class="cards" id="home-listings"><div class="empty"><div class="empty-icon">⏳</div><div class="empty-title">جاري التحميل...</div></div></div>
+  </section>
+  <section style="padding:24px 0">
+    <div class="banner">
+      <div><h2>هل تريد بيع شيء؟ 📢</h2><p>أضف إعلانك مجاناً — ينشر فوراً ويصله الجميع</p></div>
+      <button class="btn-wh" onclick="openPost()">+ أضف الآن</button>
+    </div>
+  </section>
+  <section class="sec" style="background:#fff">
+    <div class="sec-hdr"><h2 class="sec-title">كيف يعمل السوق الذكي؟</h2></div>
+    <div class="steps">
+      <div class="step"><div class="step-n">1</div><div class="step-ic">🔑</div><div class="step-t">سجّل حسابك</div><div class="step-d">Google أو إيميل وكلمة مرور</div></div>
+      <div class="step"><div class="step-n">2</div><div class="step-ic">📱</div><div class="step-t">أضف رقمك</div><div class="step-d">رقم عُماني إلزامي لنشر الإعلانات</div></div>
+      <div class="step"><div class="step-n">3</div><div class="step-ic">📸</div><div class="step-t">انشر إعلانك</div><div class="step-d">يُحفظ فوراً في Firebase</div></div>
+      <div class="step"><div class="step-n">4</div><div class="step-ic">🤝</div><div class="step-t">أتمّ الصفقة</div><div class="step-d">قابل الطرف الآخر بأمان</div></div>
+    </div>
+  </section>
+  <footer>
+    <div class="ft-grid">
+      <div><div class="ft-ar">السوق الذكي</div><div class="ft-en">SMART SOOQ</div><div class="ft-desc">السوق الأول في سلطنة عُمان 🇴🇲</div></div>
+      <div class="fc"><h4>الفئات</h4><a onclick="filterCat('سيارات')">🚗 سيارات</a><a onclick="filterCat('عقارات')">🏠 عقارات</a><a onclick="filterCat('إلكترونيات')">📱 إلكترونيات</a><a onclick="filterCat('أزياء')">👗 أزياء</a></div>
+      <div class="fc"><h4>روابط</h4><a onclick="openPost()">أضف إعلان</a><a onclick="goTo('search')">تصفح الإعلانات</a><a onclick="reqAuth('profile')">حسابي</a></div>
+      <div class="fc"><h4>تواصل معنا</h4><a>📧 <span class="__cf_email__" data-cfemail="40292e262f00332d213234332f2f316e2f2d">[email&#160;protected]</span></a><a>📞 +968 9000 0000</a></div>
+    </div>
+    <div class="ft-bot"><span>© 2025 السوق الذكي 🇴🇲</span></div>
+  </footer>
+</div>
+
+<!-- SEARCH -->
+<div class="page" id="page-search">
+  <div style="background:var(--gd);padding:12px 18px">
+    <div class="nav-s" style="max-width:540px;margin:0 auto;background:rgba(255,255,255,.15);border:2px solid rgba(255,255,255,.3)">
+      <input type="text" id="search-q" placeholder="ابحث في السوق الذكي..." style="color:#fff" onkeydown="if(event.key==='Enter')applyFilters()">
+      <button onclick="applyFilters()">🔍</button>
+    </div>
+  </div>
+  <div class="search-wrap">
+    <div class="filters">
+      <div class="f-hdr">الفلاتر <button onclick="resetFilters()">مسح الكل</button></div>
+      <div class="f-sec">
+        <h4>الفئة</h4>
+        <label class="f-chk"><input type="checkbox" value="سيارات"      onchange="applyFilters()"> 🚗 سيارات</label>
+        <label class="f-chk"><input type="checkbox" value="عقارات"      onchange="applyFilters()"> 🏠 عقارات</label>
+        <label class="f-chk"><input type="checkbox" value="إلكترونيات"  onchange="applyFilters()"> 📱 إلكترونيات</label>
+        <label class="f-chk"><input type="checkbox" value="أزياء"       onchange="applyFilters()"> 👗 أزياء</label>
+        <label class="f-chk"><input type="checkbox" value="أثاث"        onchange="applyFilters()"> 🛋️ أثاث</label>
+        <label class="f-chk"><input type="checkbox" value="وظائف"       onchange="applyFilters()"> 💼 وظائف</label>
+        <label class="f-chk"><input type="checkbox" value="خدمات"       onchange="applyFilters()"> 🔧 خدمات</label>
+        <label class="f-chk"><input type="checkbox" value="حيوانات"     onchange="applyFilters()"> 🐕 حيوانات</label>
+      </div>
+      <div class="f-sec">
+        <h4>نطاق السعر (ر.ع.)</h4>
+        <div class="range-row">
+          <input type="number" class="range-inp" id="pmin" placeholder="من"  oninput="applyFilters()">
+          <span style="color:var(--gm)">—</span>
+          <input type="number" class="range-inp" id="pmax" placeholder="إلى" oninput="applyFilters()">
+        </div>
+      </div>
+      <div class="f-sec">
+        <h4>المحافظة</h4>
+        <label class="f-chk"><input type="checkbox" value="مسقط"  onchange="applyFilters()"> مسقط</label>
+        <label class="f-chk"><input type="checkbox" value="صلالة" onchange="applyFilters()"> صلالة</label>
+        <label class="f-chk"><input type="checkbox" value="صحار"  onchange="applyFilters()"> صحار</label>
+        <label class="f-chk"><input type="checkbox" value="نزوى"  onchange="applyFilters()"> نزوى</label>
+        <label class="f-chk"><input type="checkbox" value="صور"   onchange="applyFilters()"> صور</label>
+      </div>
+      <button class="apply-btn" onclick="applyFilters()">تطبيق</button>
+    </div>
+    <div>
+      <div class="res-hdr">
+        <div class="res-txt">النتائج: <strong id="results-count">0</strong> إعلان</div>
+        <select class="sort-sel" id="sort-sel" onchange="applyFilters()">
+          <option value="newest">الأحدث أولاً</option>
+          <option value="low">السعر: من الأقل</option>
+          <option value="high">السعر: من الأعلى</option>
+        </select>
+      </div>
+      <div class="cards" id="search-listings"><div class="empty"><div class="empty-icon">⏳</div><div class="empty-title">جاري التحميل...</div></div></div>
+    </div>
+  </div>
+</div>
+
+<!-- DETAIL -->
+<div class="page" id="page-detail">
+  <div style="background:#fff;padding:10px 18px;border-bottom:1px solid var(--gl2)">
+    <button onclick="goTo('search')" style="background:var(--gl2);border:none;padding:7px 14px;border-radius:50px;font-family:'Cairo',sans-serif;font-weight:700;font-size:12px;cursor:pointer">◄ رجوع</button>
+  </div>
+  <div class="det-wrap" id="det-content"></div>
+</div>
+
+<!-- PROFILE -->
+<div class="page" id="page-profile">
+  <div class="prof-hero">
+    <div class="prof-inner">
+      <div class="prof-av" id="prof-emoji">👤</div>
+      <div>
+        <div class="prof-name"   id="prof-name">—</div>
+        <div class="prof-email"  id="prof-email"></div>
+        <div class="prof-joined" id="prof-joined"></div>
+      </div>
+    </div>
+  </div>
+  <div class="pstats">
+    <div class="ps"><strong id="my-count">0</strong><span>إعلاناتي</span></div>
+    <div class="ps"><strong id="my-active">0</strong><span>نشط</span></div>
+    <div class="ps"><strong>🔥</strong><span>Firebase</span></div>
+  </div>
+  <div class="prof-body">
+    <div class="ptabs">
+      <button class="ptab on" onclick="swPTab(this,'pt-listings')">📋 إعلاناتي</button>
+      <button class="ptab"    onclick="swPTab(this,'pt-settings')">⚙️ الإعدادات</button>
+    </div>
+    <div class="ptab-panel on" id="pt-listings">
+      <div class="mini-grid" id="my-listings-grid"><div class="empty"><div class="empty-icon">⏳</div><div class="empty-title">جاري التحميل...</div></div></div>
+    </div>
+    <div class="ptab-panel" id="pt-settings">
+      <div class="scard">
+        <div class="scard-t">👤 معلوماتي</div>
+        <div class="sg">
+          <div><label style="display:block;font-weight:700;font-size:13px;margin-bottom:5px">الاسم</label><input class="si" id="st-name" readonly></div>
+          <div><label style="display:block;font-weight:700;font-size:13px;margin-bottom:5px">البريد</label><input class="si" id="st-email" dir="ltr" readonly></div>
+          <div style="grid-column:1/-1">
+            <label style="display:block;font-weight:700;font-size:13px;margin-bottom:5px">📱 رقم الهاتف</label>
+            <div style="display:flex;gap:7px;align-items:center">
+              <div style="background:var(--gl2);padding:10px 12px;border-radius:var(--rs);font-weight:700;font-size:13px;white-space:nowrap">🇴🇲 +968</div>
+              <input class="si" id="st-phone" maxlength="8" oninput="this.value=this.value.replace(/[^0-9]/g,'')">
+              <button onclick="updatePhone()" style="background:var(--g);color:#fff;border:none;padding:10px 14px;border-radius:var(--rs);font-family:'Cairo',sans-serif;font-weight:900;font-size:13px;cursor:pointer;white-space:nowrap">💾 حفظ</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="scard">
+        <div class="scard-t">🚪 الحساب</div>
+        <button onclick="logoutUser()" style="background:#fff0f0;color:var(--danger);border:2px solid var(--danger);padding:10px 22px;border-radius:50px;font-family:'Cairo',sans-serif;font-weight:900;font-size:13px;cursor:pointer">🚪 تسجيل الخروج</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- POST MODAL -->
+<div class="modal-ov" id="post-modal" onclick="if(event.target.id==='post-modal')closeM('post-modal')">
+  <div class="modal">
+    <div class="modal-hdr"><h2>📢 إضافة إعلان مجاناً</h2><button class="modal-x" onclick="closeM('post-modal')">✕</button></div>
+    <div class="modal-body">
+      <div class="psteps">
+        <div class="pstep cur" id="si-1"><div class="pstep-n">1</div><div class="pstep-l">الفئة</div></div>
+        <div class="pstep"     id="si-2"><div class="pstep-n">2</div><div class="pstep-l">التفاصيل</div></div>
+        <div class="pstep"     id="si-3"><div class="pstep-n">3</div><div class="pstep-l">النشر</div></div>
+      </div>
+      <div class="fstep on" id="fs-1">
+        <div class="fg"><label class="fl">اختر الفئة *</label>
+          <div class="cat-grid">
+            <div class="cat-opt" onclick="selCat(this,'سيارات')">    <span class="cat-opt-ic">🚗</span>سيارات</div>
+            <div class="cat-opt" onclick="selCat(this,'عقارات')">    <span class="cat-opt-ic">🏠</span>عقارات</div>
+            <div class="cat-opt" onclick="selCat(this,'إلكترونيات')"><span class="cat-opt-ic">📱</span>إلكترونيات</div>
+            <div class="cat-opt" onclick="selCat(this,'أزياء')">     <span class="cat-opt-ic">👗</span>أزياء</div>
+            <div class="cat-opt" onclick="selCat(this,'أثاث')">      <span class="cat-opt-ic">🛋️</span>أثاث</div>
+            <div class="cat-opt" onclick="selCat(this,'وظائف')">     <span class="cat-opt-ic">💼</span>وظائف</div>
+            <div class="cat-opt" onclick="selCat(this,'خدمات')">     <span class="cat-opt-ic">🔧</span>خدمات</div>
+            <div class="cat-opt" onclick="selCat(this,'حيوانات')">   <span class="cat-opt-ic">🐕</span>حيوانات</div>
+            <div class="cat-opt" onclick="selCat(this,'أخرى')">      <span class="cat-opt-ic">📦</span>أخرى</div>
+          </div>
+        </div>
+        <div class="modal-nav"><button class="btn-nx" onclick="nxt(1)">التالي ◄</button></div>
+      </div>
+      <div class="fstep" id="fs-2">
+        <div class="fg"><label class="fl">عنوان الإعلان *</label><input type="text" class="fi" id="ad-title" placeholder="مثال: آيفون 15 برو"></div>
+        <div class="fg"><label class="fl">الوصف</label><textarea class="fta" id="ad-desc" placeholder="صف منتجك بالتفصيل..."></textarea></div>
+        <div class="fg"><label class="fl">الحالة</label>
+          <div class="cond-grid">
+            <div class="cond-opt" onclick="selCond(this)">✨ جديد</div>
+            <div class="cond-opt" onclick="selCond(this)">🌟 ممتاز</div>
+            <div class="cond-opt" onclick="selCond(this)">👍 جيد</div>
+            <div class="cond-opt" onclick="selCond(this)">🔧 يحتاج إصلاح</div>
+          </div>
+        </div>
+        <div class="fg"><label class="fl">السعر (ر.ع.) *</label><input type="number" class="fi" id="ad-price" placeholder="0.000" min="0"></div>
+        <div class="fg"><label class="fl">المحافظة *</label>
+          <select class="fi" id="ad-city">
+            <option value="">اختر محافظتك</option>
+            <option>مسقط</option><option>صلالة - ظفار</option>
+            <option>صحار - الباطنة</option><option>نزوى - الداخلية</option>
+            <option>صور - الشرقية</option><option>عبري - الظاهرة</option>
+          </select>
+        </div>
+        <div class="modal-nav"><button class="btn-bk" onclick="prv(2)">◄ رجوع</button><button class="btn-nx" onclick="nxt(2)">التالي ◄</button></div>
+      </div>
+      <div class="fstep" id="fs-3">
+        <div class="fg"><label class="fl">باقة النشر</label>
+          <div class="boost-opts">
+            <div class="boost-opt on" onclick="selB(this)"><div class="b-ic">🆓</div><div><div class="b-name">مجاني</div><div class="b-desc">نشر عادي في قائمة الإعلانات</div></div><div class="b-price">مجاناً</div></div>
+            <div class="boost-opt"   onclick="selB(this)"><div class="b-ic">⚡</div><div><div class="b-name">مميز 7 أيام</div><div class="b-desc">يظهر في أعلى النتائج</div></div><div class="b-price">2 ر.ع.</div></div>
+            <div class="boost-opt"   onclick="selB(this)"><div class="b-ic">🌟</div><div><div class="b-name">مميز 30 يوم</div><div class="b-desc">شارة ذهبية لمدة شهر</div></div><div class="b-price">5 ر.ع.</div></div>
+          </div>
+        </div>
+        <div class="modal-nav">
+          <button class="btn-bk" onclick="prv(3)">◄ رجوع</button>
+          <button class="btn-nx" id="publish-btn" onclick="doPublish()" style="background:linear-gradient(135deg,var(--gold),#F5C842)">🚀 نشر الإعلان</button>
+        </div>
+      </div>
+      <div class="fstep" id="fs-ok">
+        <div class="ok-sc">
+          <span class="ok-ic">🎉</span>
+          <div class="ok-t">تم نشر إعلانك بنجاح!</div>
+          <div style="font-size:13px;color:var(--mut);margin-bottom:18px">إعلانك محفوظ في Firebase ✅</div>
+          <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
+            <button class="btn-nx" style="width:auto;padding:10px 20px" onclick="closeM('post-modal');goTo('search')">🔍 عرض الإعلانات</button>
+            <button onclick="resetForm()" style="background:var(--gl2);color:var(--text);border:none;padding:10px 20px;border-radius:var(--rs);font-family:'Cairo',sans-serif;font-weight:900;font-size:13px;cursor:pointer">+ إعلان آخر</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- AUTH MODAL -->
+<div class="auth-ov" id="auth-modal" onclick="if(event.target.id==='auth-modal')closeM('auth-modal')">
+  <div class="auth-card">
+    <div class="auth-banner">
+      <button class="auth-x" onclick="closeM('auth-modal')">✕</button>
+      <div style="font-size:40px;margin-bottom:6px">🛍️</div>
+      <div style="color:#fff;font-size:17px;font-weight:900;margin-bottom:2px">السوق الذكي 🇴🇲</div>
+      <div style="color:rgba(255,255,255,.8);font-size:12px">سوق عُمان الأول للبيع والشراء</div>
+    </div>
+    <div class="auth-body">
+      <div class="auth-tabs">
+        <button class="auth-tab on" id="tab-login"    onclick="switchAuthTab('login')">🔑 دخول</button>
+        <button class="auth-tab"    id="tab-register" onclick="switchAuthTab('register')">✨ حساب جديد</button>
+      </div>
+      <div class="auth-panel on" id="ap-login">
+        <button class="btn-goo" onclick="loginGoogle()">
+          <svg width="18" height="18" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
+          الدخول بـ Google
+        </button>
+        <div class="auth-or"><span>أو بالإيميل</span></div>
+        <input class="auth-inp" type="email"    id="login-email" placeholder="الإيميل" dir="ltr">
+        <div style="position:relative">
+          <input class="auth-inp" type="password" id="login-pw" placeholder="كلمة المرور" style="padding-left:38px;margin-bottom:0">
+          <button onclick="togglePw('login-pw')" style="position:absolute;left:11px;top:50%;transform:translateY(-55%);background:none;border:none;cursor:pointer;font-size:15px;color:var(--gm)">👁</button>
+        </div>
+        <div class="auth-err" id="login-err"></div>
+        <button class="auth-submit" onclick="loginWithEmail()">🔑 تسجيل الدخول</button>
+        <div style="text-align:center;margin-top:9px"><button onclick="switchAuthTab('register')" style="background:none;border:none;font-family:'Cairo',sans-serif;font-size:13px;color:var(--g);cursor:pointer;font-weight:700">ليس لديك حساب؟ سجّل الآن</button></div>
+      </div>
+      <div class="auth-panel" id="ap-register">
+        <button class="btn-goo" onclick="loginGoogle()" style="margin-bottom:12px">
+          <svg width="18" height="18" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
+          تسجيل سريع بـ Google
+        </button>
+        <div class="auth-or"><span>أو بالإيميل</span></div>
+        <input class="auth-inp" type="text"     id="reg-name"  placeholder="الاسم الكامل *">
+        <input class="auth-inp" type="email"    id="reg-email" placeholder="الإيميل * (اسم المستخدم)" dir="ltr">
+        <div style="position:relative">
+          <input class="auth-inp" type="password" id="reg-pw" placeholder="كلمة المرور * (6+ أحرف)" style="padding-left:38px;margin-bottom:0">
+          <button onclick="togglePw('reg-pw')" style="position:absolute;left:11px;top:50%;transform:translateY(-55%);background:none;border:none;cursor:pointer;font-size:15px;color:var(--gm)">👁</button>
+        </div>
+        <div class="auth-phone-row" style="margin-top:8px">
+          <div class="auth-phone-cc">🇴🇲 +968</div>
+          <input class="auth-phone-inp" type="tel" id="reg-phone" placeholder="رقم عُماني *" maxlength="8" oninput="this.value=this.value.replace(/[^0-9]/g,'')">
+        </div>
+        <div class="auth-err" id="reg-err"></div>
+        <button class="auth-submit" id="reg-btn" onclick="registerWithEmail()">✨ إنشاء الحساب</button>
+        <div style="text-align:center;margin-top:9px"><button onclick="switchAuthTab('login')" style="background:none;border:none;font-family:'Cairo',sans-serif;font-size:13px;color:var(--g);cursor:pointer;font-weight:700">لديك حساب؟ ادخل هنا</button></div>
+      </div>
+      <div style="margin-top:12px;font-size:11px;color:var(--gm);text-align:center">بالتسجيل توافق على <a href="#" style="color:var(--g)">شروط الاستخدام</a></div>
+    </div>
+  </div>
+</div>
+
+<!-- PHONE MODAL -->
+<div class="phone-ov" id="phone-modal">
+  <div class="phone-card">
+    <div style="font-size:44px;margin-bottom:8px">📱</div>
+    <div style="font-size:18px;font-weight:900;margin-bottom:5px">أدخل رقم هاتفك</div>
+    <div style="font-size:13px;color:var(--mut);margin-bottom:18px;line-height:1.6">مطلوب لنشر الإعلانات والتواصل<br>يجب أن يكون رقماً عُمانياً فريداً</div>
+    <div class="phone-row">
+      <div class="phone-cc">🇴🇲 +968</div>
+      <input class="phone-inp" type="tel" id="phone-inp" placeholder="9XXXXXXX" maxlength="8" oninput="this.value=this.value.replace(/[^0-9]/g,'')">
+    </div>
+    <div class="phone-err" id="phone-err"></div>
+    <button class="phone-btn" id="phone-save-btn" onclick="savePhone()">✅ حفظ الرقم والمتابعة</button>
+    <div style="font-size:12px;color:var(--danger);font-weight:700">⚠️ رقم الهاتف إلزامي لنشر الإعلانات</div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script data-cfasync="false" src="/cdn-cgi/scripts/5c5dd728/cloudflare-static/email-decode.min.js"></script><script>
+// ════════════════════════════════════════════════
+// ALL UI FUNCTIONS — regular script, all global
+// ════════════════════════════════════════════════
+
+var G  = function(id){ return document.getElementById(id); };
+var QA = function(s) { return document.querySelectorAll(s); };
+
+// ── Navigation ──
+function goTo(p) {
+  QA('.page').forEach(function(x){ x.classList.remove('on'); });
+  var pg = G('page-'+p); if (pg) pg.classList.add('on');
+  QA('.mob-btn').forEach(function(x){ x.classList.remove('on'); });
+  var mb = G('mn-'+p); if (mb) mb.classList.add('on');
+  window.scrollTo(0,0);
+  if (p === 'profile') loadMyProfile();
+  if (p === 'search' && window.allListings) applyFilters();
+}
+function reqAuth(p){ if (window.currentUser) goTo(p); else { window.pendingPage=p; showAuth(); } }
+function showAuth() { G('auth-modal').classList.add('on'); }
+function closeM(id) { G(id).classList.remove('on'); document.body.style.overflow=''; }
+function openPost() {
+  if (!window.currentUser) { window.pendingPage='post'; showAuth(); return; }
+  if (!window._phone || window._phone.replace('+968','').length < 7) {
+    showPhoneModal();
+    window._afterPhone = function(){ G('post-modal').classList.add('on'); document.body.style.overflow='hidden'; };
+    return;
+  }
+  G('post-modal').classList.add('on');
+  document.body.style.overflow = 'hidden';
+}
+function showPhoneModal() { G('phone-modal').classList.add('on'); }
+function closePhoneModal(){ G('phone-modal').classList.remove('on'); }
+
+// ── Render cards ──
+function renderCards(list, containerId) {
+  var box = G(containerId); if (!box) return;
+  if (!list.length) {
+    box.innerHTML = '<div class="empty"><div class="empty-icon">📭</div><div class="empty-title">لا توجد إعلانات بعد</div><button onclick="openPost()" style="margin-top:12px;background:var(--g);color:#fff;border:none;padding:11px 22px;border-radius:50px;font-family:Cairo,sans-serif;font-weight:900;font-size:14px;cursor:pointer">+ أضف إعلان</button></div>';
+    return;
+  }
+  box.innerHTML = list.map(function(l) {
+    var img = (l.images && l.images[0]) ? '<img src="'+l.images[0]+'" alt="">' : '';
+    return '<div class="card" onclick="showDet(\''+l.id+'\')">'+
+      '<div class="card-img">'+img+'<span style="position:relative;z-index:1">'+(!img?l.emoji||'📦':'')+'</span>'+
+      '<div class="card-badge">جديد</div>'+
+      '<button class="card-fav" onclick="event.stopPropagation();this.textContent=this.textContent===\'🤍\'?\'❤️\':\'🤍\'">🤍</button></div>'+
+      '<div class="card-body">'+
+      '<span class="card-tag">'+(l.emoji||'📦')+' '+(l.category||'أخرى')+'</span>'+
+      '<div class="card-title">'+l.title+'</div>'+
+      '<div class="card-price">'+(l.price>0?Number(l.price).toLocaleString('ar'):'مجاني')+' <span>'+(l.price>0?'ر.ع.':'')+'</span></div>'+
+      '<div class="card-meta"><span class="card-loc">📍 '+(l.city||'عُمان')+'</span><span class="card-time">'+ago(l.createdAt)+'</span></div>'+
+      '</div></div>';
+  }).join('');
+}
+
+// ── Show detail ──
+function showDet(id) {
+  var l = (window.allListings||[]).filter(function(x){ return x.id===id; })[0];
+  if (!l) return;
+  var mine = window.currentUser && l.sellerId === window.currentUser.uid;
+  G('det-content').innerHTML =
+    '<div class="det-grid">'+
+      '<div>'+
+        '<div class="gallery"><div class="main-img">'+(l.images&&l.images[0]?'<img src="'+l.images[0]+'" alt="">':l.emoji||'📦')+'</div></div>'+
+        '<div class="det-info">'+
+          '<span class="det-cat">'+(l.emoji||'📦')+' '+(l.category||'')+'</span>'+
+          '<h1 class="det-title">'+l.title+'</h1>'+
+          '<div class="det-price">'+(l.price>0?Number(l.price).toLocaleString('ar'):'مجاني')+' <span>'+(l.price>0?'ر.ع.':'')+'</span></div>'+
+          '<div class="det-metas"><span class="det-meta">📍 '+(l.city||'عُمان')+'</span><span class="det-meta">🕐 '+ago(l.createdAt)+'</span></div>'+
+          '<div class="det-desc">'+(l.desc||'لا يوجد وصف إضافي.')+'</div>'+
+          (!mine?'<div style="display:flex;gap:7px;flex-wrap:wrap"><button onclick="showToast(\'🔗 تم نسخ الرابط!\')" style="border:2px solid var(--gl2);background:#fff;border-radius:9px;padding:7px 13px;font-family:Cairo,sans-serif;font-size:12px;font-weight:700;cursor:pointer">🔗 مشاركة</button><button onclick="showToast(\'🚩 تم الإبلاغ\')" style="border:2px solid var(--gl2);background:#fff;border-radius:9px;padding:7px 13px;font-family:Cairo,sans-serif;font-size:12px;font-weight:700;cursor:pointer">🚩 إبلاغ</button></div>':'')+
+        '</div>'+
+      '</div>'+
+      '<div>'+
+        '<div class="seller-card">'+
+          '<div class="seller-top">'+
+            (l.sellerPhoto?'<img class="seller-av" src="'+l.sellerPhoto+'" style="border-radius:50%">'  :'<div class="seller-av">👤</div>')+
+            '<div><div class="seller-name">'+(l.sellerName||'بائع')+'</div><div class="seller-sub">✅ بائع موثق</div></div>'+
+          '</div>'+
+          '<div class="contact-btns">'+
+            (!mine?'<button class="btn-chat" onclick="showToast(\'💬 جاري فتح المحادثة...\')">💬 مراسلة البائع</button>':'')  +
+            (l.sellerPhone&&!mine?'<button class="btn-wa" onclick="openWA(\''+l.sellerPhone+'\')">📱 واتساب</button>':'')+
+            (mine?'<button onclick="deleteListing(\''+l.id+'\')" style="background:#fff0f0;color:var(--danger);border:2px solid var(--danger);padding:11px;border-radius:var(--rs);font-family:Cairo,sans-serif;font-weight:900;font-size:13px;cursor:pointer">🗑️ حذف إعلاني</button>':'')+
+          '</div>'+
+        '</div>'+
+        '<div class="safety"><h4>⚠️ نصائح الأمان</h4><ul><li>التقِ بالبائع في مكان عام</li><li>افحص المنتج قبل الدفع</li><li>لا تدفع مقدماً عن بُعد</li></ul></div>'+
+      '</div>'+
+    '</div>';
+  goTo('detail');
+}
+
+// ── Search & filter ──
+function doSearch() {
+  var q = (G('hero-q')||G('nav-q'));
+  if (q && q.value) { var sq = G('search-q'); if(sq) sq.value=q.value; }
+  goTo('search'); applyFilters();
+}
+function filterCat(cat) {
+  QA('.filters input[type=checkbox]').forEach(function(c){ c.checked = c.value===cat; });
+  goTo('search'); applyFilters();
+}
+function applyFilters() {
+  if (!window.allListings) return;
+  var r = window.allListings.slice();
+  var q = G('search-q') ? G('search-q').value.toLowerCase() : '';
+  var cats = [];
+  QA('.filters input[type=checkbox]:checked').forEach(function(c){
+    if (['مسقط','صلالة','صحار','نزوى','صور'].indexOf(c.value)===-1) cats.push(c.value);
+  });
+  var cities = [];
+  QA('.filters input[type=checkbox]:checked').forEach(function(c){
+    if (['مسقط','صلالة','صحار','نزوى','صور'].indexOf(c.value)>-1) cities.push(c.value);
+  });
+  var pmin = parseFloat(G('pmin') ? G('pmin').value : '') || 0;
+  var pmax = parseFloat(G('pmax') ? G('pmax').value : '') || Infinity;
+  var sortEl = G('sort-sel');
+  var sort = sortEl ? sortEl.value : 'newest';
+  if (q)          r = r.filter(function(l){ return (l.title+' '+l.desc+' '+l.category).toLowerCase().indexOf(q)>-1; });
+  if (cats.length) r = r.filter(function(l){ return cats.indexOf(l.category)>-1; });
+  if (cities.length) r = r.filter(function(l){ return cities.some(function(cv){ return l.city && l.city.indexOf(cv)>-1; }); });
+  if (pmin)        r = r.filter(function(l){ return l.price >= pmin; });
+  if (pmax !== Infinity) r = r.filter(function(l){ return l.price <= pmax; });
+  if (sort==='low')  r.sort(function(a,b){ return a.price-b.price; });
+  if (sort==='high') r.sort(function(a,b){ return b.price-a.price; });
+  renderCards(r, 'search-listings');
+  var rc = G('results-count'); if(rc) rc.textContent = r.length;
+}
+function resetFilters() {
+  QA('.filters input[type=checkbox]').forEach(function(c){ c.checked=false; });
+  if(G('pmin')) G('pmin').value=''; if(G('pmax')) G('pmax').value='';
+  if(G('search-q')) G('search-q').value='';
+  applyFilters();
+}
+
+// ── Profile ──
+function loadMyProfile() {
+  if (!window.currentUser) { showAuth(); return; }
+  var u = window.currentUser;
+  if(G('prof-name'))   G('prof-name').textContent   = u.displayName||'مستخدم';
+  if(G('prof-email'))  G('prof-email').textContent  = '📧 '+(u.email||'');
+  if(G('prof-joined')) G('prof-joined').textContent = u.metadata&&u.metadata.creationTime ? 'عضو منذ '+new Date(u.metadata.creationTime).toLocaleDateString('ar-OM',{year:'numeric',month:'long'}) : '';
+  if(G('st-name'))  G('st-name').value  = u.displayName||'';
+  if(G('st-email')) G('st-email').value = u.email||'';
+  loadUserPhone(u.uid);
+  loadMyListings();
+}
+function loadMyListings() {
+  if (!window.currentUser) return;
+  var grid = G('my-listings-grid');
+  if (!grid) return;
+  grid.innerHTML = '<div class="empty"><div class="empty-icon">⏳</div></div>';
+  db.collection('listings').where('sellerId','==',window.currentUser.uid).orderBy('createdAt','desc').get().then(function(snap){
+    var mine = [];
+    snap.forEach(function(d){ mine.push(Object.assign({id:d.id},d.data())); });
+    if(G('my-count'))  G('my-count').textContent  = mine.length;
+    if(G('my-active')) G('my-active').textContent = mine.length;
+    if (!mine.length) {
+      grid.innerHTML = '<div class="empty"><div class="empty-icon">📭</div><div class="empty-title">لا توجد إعلانات بعد</div><button onclick="openPost()" style="margin-top:12px;background:var(--g);color:#fff;border:none;padding:11px 22px;border-radius:50px;font-family:Cairo,sans-serif;font-weight:900;font-size:14px;cursor:pointer">+ أضف الأول</button></div>';
+      return;
+    }
+    grid.innerHTML = mine.map(function(l){
+      return '<div class="mini-card" onclick="showDet(\''+l.id+'\')">'+
+        '<div class="mini-img">'+(l.emoji||'📦')+'<div class="m-st">نشط</div></div>'+
+        '<div class="mini-body">'+
+        '<div class="mini-t">'+l.title+'</div>'+
+        '<div class="mini-p">'+(l.price>0?Number(l.price).toLocaleString('ar')+' ر.ع.':'مجاني')+'</div>'+
+        '<div class="mini-loc">📍 '+(l.city||'عُمان')+'</div>'+
+        '<div class="mini-acts">'+
+        '<button class="mini-btn e" onclick="event.stopPropagation();showToast(\'✏️ التعديل قريباً\')">تعديل</button>'+
+        '<button class="mini-btn d" onclick="event.stopPropagation();deleteListing(\''+l.id+'\')">حذف</button>'+
+        '</div></div></div>';
+    }).join('') + '<div class="add-card" onclick="openPost()"><div style="text-align:center;color:var(--g)"><div style="font-size:30px;margin-bottom:6px">➕</div><div style="font-weight:900;font-size:13px">إعلان جديد</div></div></div>';
+  }).catch(function(){
+    grid.innerHTML = '<div class="empty"><div class="empty-icon">❌</div><div class="empty-title">خطأ في التحميل</div></div>';
+  });
+}
+function updatePhone() {
+  var raw = G('st-phone') ? G('st-phone').value.trim() : '';
+  if (!raw || raw.length<7) { showToast('⚠️ رقم غير صحيح'); return; }
+  if (!window.currentUser) { showAuth(); return; }
+  var phone = '+968' + raw;
+  db.collection('users').where('phone','==',phone).get().then(function(snap){
+    var taken = false;
+    snap.forEach(function(d){ if(d.data().uid!==window.currentUser.uid) taken=true; });
+    if (taken) { showToast('❌ هذا الرقم مسجّل لمستخدم آخر — المستخدم موجود مسبقاً'); return; }
+    db.collection('users').where('uid','==',window.currentUser.uid).get().then(function(uSnap){
+      uSnap.forEach(function(d){ d.ref.update({phone:phone}); });
+      window._phone = phone;
+      showToast('✅ تم تحديث رقم هاتفك!');
+    });
+  }).catch(function(e){ showToast('❌ '+e.message); });
+}
+function swPTab(btn,panel) {
+  QA('.ptab').forEach(function(b){ b.classList.remove('on'); });
+  QA('.ptab-panel').forEach(function(p){ p.classList.remove('on'); });
+  btn.classList.add('on'); G(panel).classList.add('on');
+}
+
+// ── Post form ──
+var _step = 1;
+window._selectedCat = ''; window._selectedCond = '';
+function nxt(from) {
+  if (from===1 && !window._selectedCat)  { showToast('⚠️ اختر الفئة أولاً'); return; }
+  if (from===2 && !(G('ad-title')&&G('ad-title').value.trim())) { showToast('⚠️ أدخل عنوان الإعلان'); return; }
+  if (from===2 && !(G('ad-city')&&G('ad-city').value)) { showToast('⚠️ اختر المحافظة'); return; }
+  _step = from+1;
+  G('fs-'+from).classList.remove('on'); G('fs-'+_step).classList.add('on'); updDots(_step);
+}
+function prv(from){ _step=from-1; G('fs-'+from).classList.remove('on'); G('fs-'+_step).classList.add('on'); updDots(_step); }
+function updDots(cur){ for(var i=1;i<=3;i++){ var s=G('si-'+i); if(!s)continue; s.classList.remove('cur','done'); if(i<cur)s.classList.add('done'); else if(i===cur)s.classList.add('cur'); } }
+function selCat(el,cat){ QA('.cat-opt').forEach(function(o){o.classList.remove('on');}); el.classList.add('on'); window._selectedCat=cat; }
+function selCond(el){ QA('.cond-opt').forEach(function(o){o.classList.remove('on');}); el.classList.add('on'); window._selectedCond=el.textContent.trim(); }
+function selB(el){ QA('.boost-opt').forEach(function(o){o.classList.remove('on');}); el.classList.add('on'); }
+function resetForm(){
+  _step=1; QA('.fstep').forEach(function(s){s.classList.remove('on');}); G('fs-1').classList.add('on'); updDots(1);
+  QA('.cat-opt,.cond-opt').forEach(function(o){o.classList.remove('on');});
+  QA('.boost-opt').forEach(function(o,i){o.classList.remove('on'); if(i===0)o.classList.add('on');});
+  if(G('ad-title'))G('ad-title').value=''; if(G('ad-desc'))G('ad-desc').value='';
+  if(G('ad-price'))G('ad-price').value=''; if(G('ad-city'))G('ad-city').value='';
+  window._selectedCat=''; window._selectedCond='';
+}
+
+// ── Auth tabs & helpers ──
+function switchAuthTab(tab) {
+  QA('.auth-tab').forEach(function(t){t.classList.remove('on');}); QA('.auth-panel').forEach(function(p){p.classList.remove('on');});
+  var tb=G('tab-'+tab); var pn=G('ap-'+tab);
+  if(tb)tb.classList.add('on'); if(pn)pn.classList.add('on');
+}
+function togglePw(inputId) { var inp=G(inputId); if(!inp)return; inp.type=inp.type==='password'?'text':'password'; }
+function openWA(phone) {
+  if (!phone||phone.replace('+968','').length<6) { showToast('📞 البائع لم يضف رقمه بعد'); return; }
+  window.open('https://wa.me/'+phone.replace(/[^0-9]/g,''),'_blank');
+}
+
+// ── Nav UI ──
+function updateNavUI(user) {
+  if (user) {
+    var nu=G('nav-user'); if(nu)nu.style.display='flex';
+    var bl=G('btn-login'); if(bl)bl.style.display='none';
+    var bo=G('btn-logout'); if(bo)bo.style.display='flex';
+    var un=G('nav-uname'); if(un)un.textContent=user.displayName||'مستخدم';
+    if (user.photoURL) { var uph=G('nav-uph'); if(uph){uph.src=user.photoURL;uph.style.display='block';} var uav=G('nav-uav'); if(uav)uav.style.display='none'; }
+    else { var uav2=G('nav-uav'); if(uav2){uav2.style.display='flex';uav2.textContent=(user.displayName||'U')[0].toUpperCase();} }
+    loadUserPhone(user.uid);
+  } else {
+    var nu2=G('nav-user'); if(nu2)nu2.style.display='none';
+    var bl2=G('btn-login'); if(bl2)bl2.style.display='flex';
+    var bo2=G('btn-logout'); if(bo2)bo2.style.display='none';
+  }
+}
+
+// ── Lang toggle ──
+var _lang = localStorage.getItem('ss_lang')||'ar';
+function toggleLang() {
+  _lang = _lang==='ar'?'en':'ar';
+  localStorage.setItem('ss_lang',_lang);
+  document.documentElement.lang = _lang;
+  document.documentElement.dir  = _lang==='ar'?'rtl':'ltr';
+  var lb=G('lang-btn'); if(lb)lb.textContent=_lang==='ar'?'EN':'ع';
+}
+// Apply on load
+(function(){ document.documentElement.lang=_lang; document.documentElement.dir=_lang==='ar'?'rtl':'ltr'; var lb=G('lang-btn'); if(lb)lb.textContent=_lang==='ar'?'EN':'ع'; })();
+
+// ── Utilities ──
+function ago(ts) {
+  if (!ts) return 'الآن';
+  var d = ts.toDate ? ts.toDate() : new Date(ts);
+  var s = Math.floor((new Date()-d)/1000);
+  if (s<60)    return 'الآن';
+  if (s<3600)  return Math.floor(s/60)+' دقيقة';
+  if (s<86400) return Math.floor(s/3600)+' ساعة';
+  return Math.floor(s/86400)+' يوم';
+}
+var _tt;
+function showToas
