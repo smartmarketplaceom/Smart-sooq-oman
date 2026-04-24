@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>السوق الذكي - SMART SOOQ</title>
+<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;600;700;900&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --green: #2e7d32;
+    --green-mid: #388e3c;
+    --green-light: #43a047;
+    --green-pale: #e8f5e9;
+    --gold: #f5a623;
+    --gold-dark: #e09418;
+    --white: #ffffff;
+    --bg: #f5f7f5;
+    --dark: #1a2218;
+    --gray: #7a8c7a;
+    --border: #dde8dd;
+    --shadow: 0 2px 14px rgba(46,125,50,0.10);
+    --radius: 16px;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Cairo', sans-serif; background: var(--bg); color: var(--dark); min-height: 100vh; }
+
+  /* HEADER */
+  .header {
+    background: var(--white);
+    padding: 12px 18px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    border-bottom: 1px solid var(--border);
+    position: sticky; top: 0; z-index: 100;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.06);
+  }
+  .logo-block { display: flex; align-items: center; gap: 10px; text-decoration: none; }
+  .logo-icon { width: 44px; height: 44px; background: var(--green); border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 22px; }
+  .logo-text { line-height: 1.1; text-align: right; }
+  .logo-ar { font-size: 17px; font-weight: 900; color: var(--green); }
+  .logo-en { font-size: 10px; font-weight: 700; color: var(--gray); letter-spacing: 1px; }
+  .header-btns { display: flex; gap: 8px; align-items: center; }
+  .btn-lang { width: 36px; height: 36px; border-radius: 50%; border: 2px solid var(--border); background: white; font-size: 12px; font-weight: 800; color: var(--dark); cursor: pointer; display: flex; align-items: center; justify-content: center; transition: border-color 0.2s; }
+  .btn-lang:hover { border-color: var(--green); color: var(--green); }
+  .btn-login { display: flex; align-items: center; gap: 6px; background: var(--green); color: white; border: none; padding: 9px 16px; border-radius: 50px; font-family: 'Cairo', sans-serif; font-size: 13px; font-weight: 700; cursor: pointer; transition: background 0.2s, transform 0.15s; }
+  .btn-login:hover { background: var(--green-mid); transform: translateY(-1px); }
+  .btn-post-header { display: flex; align-items: center; gap: 6px; background: var(--gold); color: white; border: none; padding: 9px 16px; border-radius: 50px; font-family: 'Cairo', sans-serif; font-size: 13px; font-weight: 700; cursor: pointer; transition: background 0.2s, transform 0.15s; box-shadow: 0 3px 12px rgba(245,166,35,0.35); }
+  .btn-post-header:hover { background: var(--gold-dark); transform: translateY(-1px); }
+
+  /* HERO */
+  .hero { background: linear-gradient(160deg, #2e7d32 0%, #388e3c 45%, #1b5e20 100%); padding: 32px 20px 40px; position: relative; overflow: hidden; }
+  .hero::before { content: ''; position: absolute; inset: 0; background: radial-gradient(ellipse at 80% 20%, rgba(255,255,255,0.08) 0%, transparent 55%), radial-gradient(ellipse at 10% 80%, rgba(0,0,0,0.1) 0%, transparent 50%); }
+  .hero-inner { position: relative; z-index: 1; max-width: 700px; margin: 0 auto; }
+  .hero-tag { display: inline-flex; align-items: center; gap: 6px; background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.25); border-radius: 50px; padding: 7px 16px; color: white; font-size: 13px; font-weight: 600; margin-bottom: 20px; backdrop-filter: blur(4px); }
+  .hero h1 { font-size: 36px; font-weight: 900; color: white; line-height: 1.2; margin-bottom: 12px; text-shadow: 0 2px 8px rgba(0,0,0,0.2); }
+  .hero h1 span { color: var(--gold); }
+  .hero-sub { color: rgba(255,255,255,0.82); font-size: 14px; margin-bottom: 24px; line-height: 1.6; }
+  .hero-search { display: flex; background: white; border-radius: 50px; overflow: hidden; box-shadow: 0 6px 24px rgba(0,0,0,0.2); margin-bottom: 28px; }
+  .hero-search input { flex: 1; border: none; padding: 14px 20px; font-family: 'Cairo', sans-serif; font-size: 14px; outline: none; color: var(--dark); text-align: right; background: transparent; }
+  .hero-search button { background: var(--green); border: none; padding: 0 22px; color: white; font-family: 'Cairo', sans-serif; font-size: 14px; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 6px; transition: background 0.2s; flex-shrink: 0; }
+  .hero-search button:hover { background: var(--green-mid); }
+  .hero-stats { display: flex; background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.2); border-radius: 16px; overflow: hidden; backdrop-filter: blur(6px); }
+  .stat-item { flex: 1; text-align: center; padding: 14px 10px; border-left: 1px solid rgba(255,255,255,0.15); }
+  .stat-item:last-child { border-left: none; }
+  .stat-value { font-size: 20px; font-weight: 900; color: white; margin-bottom: 2px; }
+  .stat-label { font-size: 11px; color: rgba(255,255,255,0.75); font-weight: 500; }
+  .stat-icon { font-size: 18px; margin-bottom: 2px; }
+
+  /* SECTION */
+  .section { max-width: 800px; margin: 0 auto; padding: 28px 16px 0; }
+  .section-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+  .section-title { font-size: 19px; font-weight: 800; color: var(--dark); border-right: 4px solid var(--green); padding-right: 10px; }
+  .see-all { color: var(--green); font-size: 13px; font-weight: 700; text-decoration: none; display: flex; align-items: center; gap: 3px; transition: color 0.2s; }
+  .see-all:hover { color: var(--green-mid); }
+
+  /* CATEGORIES */
+  .cat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  .cat-card { background: white; border-radius: var(--radius); padding: 22px 12px 18px; text-align: center; cursor: pointer; text-decoration: none; color: var(--dark); display: block; border: 2px solid transparent; box-shadow: var(--shadow); transition: transform 0.2s, border-color 0.2s, box-shadow 0.2s; }
+  .cat-card:hover { transform: translateY(-4px); border-color: var(--green); box-shadow: 0 8px 24px rgba(46,125,50,0.15); }
+  .cat-icon { font-size: 36px; margin-bottom: 8px; display: block; }
+  .cat-name { font-size: 14px; font-weight: 700; }
+
+  /* LISTINGS */
+  .listings-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+  .listing-card { background: white; border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow); cursor: pointer; text-decoration: none; color: var(--dark); display: block; border: 2px solid transparent; transition: transform 0.2s, border-color 0.2s, box-shadow 0.2s; }
+  .listing-card:hover { transform: translateY(-4px); border-color: var(--green); box-shadow: 0 8px 24px rgba(46,125,50,0.15); }
+  .listing-thumb { width: 100%; height: 150px; background: linear-gradient(135deg, #e8f5e9, #c8e6c9); display: flex; align-items: center; justify-content: center; font-size: 52px; position: relative; }
+  .listing-cat-tag { position: absolute; bottom: 8px; right: 8px; background: var(--green); color: white; font-size: 10px; font-weight: 700; padding: 3px 8px; border-radius: 6px; }
+  .fav-btn { position: absolute; top: 8px; left: 8px; background: rgba(255,255,255,0.9); border: none; border-radius: 50%; width: 32px; height: 32px; cursor: pointer; font-size: 15px; display: flex; align-items: center; justify-content: center; transition: transform 0.2s; }
+  .fav-btn:hover { transform: scale(1.2); }
+  .listing-body { padding: 12px; }
+  .listing-price { font-size: 16px; font-weight: 900; color: var(--green); margin-bottom: 4px; }
+  .listing-title { font-size: 13px; font-weight: 600; line-height: 1.4; margin-bottom: 8px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .listing-meta { font-size: 11px; color: var(--gray); display: flex; gap: 8px; flex-wrap: wrap; }
+
+  /* PROMO */
+  .promo-card { background: linear-gradient(135deg, var(--green) 0%, #1b5e20 100%); border-radius: var(--radius); padding: 24px 22px; display: flex; align-items: center; justify-content: space-between; gap: 16px; box-shadow: 0 4px 20px rgba(46,125,50,0.25); }
+  .promo-card h3 { font-size: 18px; font-weight: 800; color: white; margin-bottom: 6px; }
+  .promo-card p { font-size: 13px; color: rgba(255,255,255,0.75); line-height: 1.5; }
+  .promo-emojis { font-size: 32px; display: flex; gap: 8px; flex-shrink: 0; }
+
+  /* BOTTOM NAV */
+  .bottom-nav { background: white; border-top: 1px solid var(--border); position: fixed; bottom: 0; left: 0; right: 0; display: flex; align-items: stretch; z-index: 100; box-shadow: 0 -4px 20px rgba(0,0,0,0.08); height: 62px; }
+  .nav-item { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 6px 0; cursor: pointer; text-decoration: none; color: var(--gray); font-size: 10px; font-family: 'Cairo', sans-serif; font-weight: 600; gap: 2px; border: none; background: none; transition: color 0.2s; }
+  .nav-item .nav-icon { font-size: 20px; }
+  .nav-item.active { color: var(--green); }
+  .nav-item:hover { color: var(--green); }
+  .nav-add { flex: 1; display: flex; align-items: center; justify-content: center; }
+  .nav-add-btn { width: 48px; height: 48px; border-radius: 50%; background: var(--green); border: none; cursor: pointer; font-size: 26px; color: white; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 14px rgba(46,125,50,0.45); transition: transform 0.2s, box-shadow 0.2s; margin-bottom: 10px; }
+  .nav-add-btn:hover { transform: scale(1.12) rotate(90deg); box-shadow: 0 6px 20px rgba(46,125,50,0.55); }
+
+  /* MODAL */
+  .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.55); z-index: 200; align-items: flex-end; justify-content: center; backdrop-filter: blur(3px); }
+  .modal-overlay.open { display: flex; }
+  .modal { background: white; border-radius: 24px 24px 0 0; padding: 28px 24px 40px; width: 100%; max-width: 600px; max-height: 90vh; overflow-y: auto; animation: slideUp 0.35s cubic-bezier(0.34,1.56,0.64,1); }
+  .login-modal { background: white; border-radius: 24px 24px 0 0; padding: 28px 24px 40px; width: 100%; max-width: 600px; animation: slideUp 0.35s cubic-bezier(0.34,1.56,0.64,1); }
+  @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+  .modal-handle { width: 40px; height: 4px; background: #dde; border-radius: 4px; margin: 0 auto 20px; }
+  .modal h2 { font-size: 20px; font-weight: 800; margin-bottom: 20px; color: var(--green); text-align: center; }
+  .form-group { margin-bottom: 14px; }
+  .form-group label { display: block; font-size: 12px; font-weight: 700; color: var(--gray); margin-bottom: 5px; text-align: right; }
+  .form-group input, .form-group select, .form-group textarea { width: 100%; border: 2px solid var(--border); border-radius: 12px; padding: 11px 14px; font-family: 'Cairo', sans-serif; font-size: 14px; color: var(--dark); outline: none; transition: border-color 0.2s; text-align: right; background: #fafcfa; resize: none; direction: rtl; }
+  .form-group input:focus, .form-group select:focus, .form-group textarea:focus { border-color: var(--green); background: white; }
+  .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .btn-submit { width: 100%; background: var(--green); color: white; border: none; padding: 14px; border-radius: 14px; font-family: 'Cairo', sans-serif; font-size: 16px; font-weight: 800; cursor: pointer; transition: background 0.2s, transform 0.15s; margin-top: 6px; box-shadow: 0 4px 16px rgba(46,125,50,0.35); }
+  .btn-submit:hover { background: var(--green-mid); transform: translateY(-1px); }
+  .social-btn { width: 100%; border: 2px solid var(--border); background: white; border-radius: 12px; padding: 12px; font-family: 'Cairo', sans-serif; font-size: 14px; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; margin-bottom: 10px; transition: border-color 0.2s, background 0.2s; color: var(--dark); }
+  .social-btn:hover { border-color: var(--green); background: var(--green-pale); }
+  .divider { text-align: center; color: var(--gray); font-size: 12px; margin: 12px 0; position: relative; }
+  .divider::before { content: ''; position: absolute; top: 50%; left: 0; right: 0; height: 1px; background: var(--border); z-index: 0; }
+  .divider span { background: white; padding: 0 10px; position: relative; z-index: 1; }
+
+  /* TOAST */
+  .toast { position: fixed; top: 80px; left: 50%; transform: translateX(-50%) translateY(-12px); background: var(--green); color: white; padding: 12px 24px; border-radius: 50px; font-size: 14px; font-weight: 700; box-shadow: 0 4px 20px rgba(46,125,50,0.4); z-index: 300; opacity: 0; transition: opacity 0.3s, transform 0.3s; pointer-events: none; white-space: nowrap; }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  .page-end { height: 80px; }
+
+  .fade-up { opacity: 0; transform: translateY(16px); animation: fadeUp 0.5s ease forwards; }
+  @keyframes fadeUp { to { opacity: 1; transform: translateY(0); } }
+  .fade-up:nth-child(1){animation-delay:.05s}.fade-up:nth-child(2){animation-delay:.1s}.fade-up:nth-child(3){animation-delay:.15s}.fade-up:nth-child(4){animation-delay:.2s}.fade-up:nth-child(5){animation-delay:.25s}.fade-up:nth-child(6){animation-delay:.3s}.fade-up:nth-child(7){animation-delay:.35s}.fade-up:nth-child(8){animation-delay:.4s}.fade-up:nth-child(9){animation-delay:.45s}
+
+  @media(max-width:480px){.hero h1{font-size:26px}.header-btns .btn-login span{display:none}.section{padding:22px 12px 0}}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<header class="header">
+  <div class="header-btns">
+    <button class="btn-post-header" onclick="openPostModal()">＋ أضف إعلان</button>
+    <button class="btn-login" onclick="openLoginModal()">🔑 <span>دخول</span></button>
+    <button class="btn-lang">EN</button>
+  </div>
+  <a href="#" class="logo-block">
+    <div class="logo-text">
+      <div class="logo-ar">السوق الذكي</div>
+      <div class="logo-en">SMART SOOQ</div>
+    </div>
+    <div class="logo-icon">🛍️</div>
+  </a>
+</header>
+
+<!-- HERO -->
+<section class="hero">
+  <div class="hero-inner">
+    <div class="hero-tag">⭐ السوق الذكي — وجهتك للتسوق وعرض إعلاناتك</div>
+    <h1>بيع واشتري بكل <span>سهولة وأمان</span></h1>
+    <p class="hero-sub">آلاف الإعلانات الحقيقية — سجّل وانشر إعلانك الآن مجاناً</p>
+    <div class="hero-search">
+      <input type="text" id="heroSearch" placeholder="ابحث عن أي شيء..." onkeypress="if(event.key==='Enter')doSearch()">
+      <button onclick="doSearch()">بحث 🔍</button>
+    </div>
+    <div class="hero-stats">
+      <div class="stat-item">
+        <div class="stat-icon">📋</div>
+        <div class="stat-value" id="counter1">0</div>
+        <div class="stat-label">إعلان نشط</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-icon">🆓</div>
+        <div class="stat-value">مجاناً</div>
+        <div class="stat-label">النشر والتصفح</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-icon">🌍</div>
+        <div class="stat-value">100%</div>
+        <div class="stat-label">موثوق ومأمون</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- CATEGORIES -->
+<div class="section">
+  <div class="section-header">
+    <a href="#" class="see-all">◄ كل الفئات</a>
+    <h2 class="section-title">تصفح الفئات</h2>
+  </div>
+  <div class="cat-grid">
+    <a href="#" class="cat-card fade-up" onclick="filterCat(event,'سيارات')"><span class="cat-icon">🚗</span><span class="cat-name">سيارات</span></a>
+    <a href="#" class="cat-card fade-up" onclick="filterCat(event,'عقارات')"><span class="cat-icon">🏠</span><span class="cat-name">عقارات</span></a>
+    <a href="#" class="cat-card fade-up" onclick="filterCat(event,'إلكترونيات')"><span class="cat-icon">📱</span><span class="cat-name">إلكترونيات</span></a>
+    <a href="#" class="cat-card fade-up" onclick="filterCat(event,'أزياء')"><span class="cat-icon">👗</span><span class="cat-name">أزياء</span></a>
+    <a href="#" class="cat-card fade-up" onclick="filterCat(event,'أثاث')"><span class="cat-icon">🛋️</span><span class="cat-name">أثاث</span></a>
+    <a href="#" class="cat-card fade-up" onclick="filterCat(event,'وظائف')"><span class="cat-icon">💼</span><span class="cat-name">وظائف</span></a>
+    <a href="#" class="cat-card fade-up" onclick="filterCat(event,'حيوانات')"><span class="cat-icon">🐕</span><span class="cat-name">حيوانات</span></a>
+    <a href="#" class="cat-card fade-up" onclick="filterCat(event,'خدمات')"><span class="cat-icon">🔧</span><span class="cat-name">خدمات</span></a>
+    <a href="#" class="cat-card fade-up" onclick="filterCat(event,'دراجات')"><span class="cat-icon">🏍️</span><span class="cat-name">دراجات</span></a>
+  </div>
+</div>
+
+<!-- LISTINGS -->
+<div class="section" style="margin-top:28px;">
+  <div class="section-header">
+    <a href="#" class="see-all" onclick="showAll(event)">◄ عرض الكل</a>
+    <h2 class="section-title" id="listingsTitle">أحدث الإعلانات</h2>
+  </div>
+  <div class="listings-grid" id="listingsGrid"></div>
+</div>
+
+<!-- PROMO -->
+<div class="section" style="margin-top:24px;">
+  <div class="promo-card">
+    <div>
+      <h3>انشر إعلانك الآن 🚀</h3>
+      <p>مجاناً وبدون رسوم — يصل إعلانك لآلاف المشترين فوراً</p>
+    </div>
+    <div class="promo-emojis">💰📈</div>
+  </div>
+</div>
+
+<div class="page-end"></div>
+
+<!-- BOTTOM NAV -->
+<nav class="bottom-nav">
+  <a href="#" class="nav-item active" onclick="setNav(event,this)"><span class="nav-icon">🏠</span>الرئيسية</a>
+  <a href="#" class="nav-item" onclick="setNav(event,this)"><span class="nav-icon">🔍</span>بحث</a>
+  <div class="nav-add"><button class="nav-add-btn" onclick="openPostModal()">＋</button></div>
+  <a href="#" class="nav-item" onclick="setNav(event,this)"><span class="nav-icon">💬</span>رسائل</a>
+  <a href="#" class="nav-item" onclick="setNav(event,this)"><span class="nav-icon">👤</span>حسابي</a>
+</nav>
+
+<!-- POST MODAL -->
+<div class="modal-overlay" id="postModal" onclick="closeOnOutside(event,'postModal')">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <h2>📝 أضف إعلاناً جديداً</h2>
+    <div class="form-group">
+      <label>الفئة</label>
+      <select id="adCat">
+        <option value="">اختر الفئة...</option>
+        <option>سيارات</option><option>عقارات</option><option>إلكترونيات</option>
+        <option>أزياء</option><option>أثاث</option><option>وظائف</option>
+        <option>حيوانات</option><option>خدمات</option><option>دراجات</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label>عنوان الإعلان</label>
+      <input type="text" id="adTitle" placeholder="مثال: آيفون 15 للبيع...">
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>المدينة</label>
+        <input type="text" id="adCity" placeholder="مسقط...">
+      </div>
+      <div class="form-group">
+        <label>السعر (ر.ع)</label>
+        <input type="number" id="adPrice" placeholder="0">
+      </div>
+    </div>
+    <div class="form-group">
+      <label>الوصف</label>
+      <textarea rows="3" id="adDesc" placeholder="اكتب تفاصيل إعلانك..."></textarea>
+    </div>
+    <div class="form-group">
+      <label>رقم التواصل</label>
+      <input type="tel" id="adPhone" placeholder="+968 9xxx xxxx">
+    </div>
+    <button class="btn-submit" onclick="submitAd()">نشر الإعلان مجاناً 🚀</button>
+  </div>
+</div>
+
+<!-- LOGIN MODAL -->
+<div class="modal-overlay" id="loginModal" onclick="closeOnOutside(event,'loginModal')">
+  <div class="login-modal">
+    <div class="modal-handle"></div>
+    <h2 style="font-size:20px;font-weight:800;text-align:center;margin-bottom:20px;color:var(--green)">👋 مرحباً بك</h2>
+    <button class="social-btn">📱 تسجيل برقم الجوال</button>
+    <button class="social-btn">✉️ تسجيل بالبريد الإلكتروني</button>
+    <div class="divider"><span>أو</span></div>
+    <div class="form-group"><label>البريد الإلكتروني</label><input type="email" placeholder="example@mail.com"></div>
+    <div class="form-group"><label>كلمة المرور</label><input type="password" placeholder="••••••••"></div>
+    <button class="btn-submit" onclick="submitLogin()">دخول 🔑</button>
+    <p style="text-align:center;margin-top:14px;font-size:13px;color:var(--gray)">ليس لديك حساب؟ <a href="#" style="color:var(--green);font-weight:700">سجّل الآن</a></p>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const allListings = [
+  {emoji:'🚗',cat:'سيارات',title:'تويوتا لاند كروزر 2022 - فل أوبشن',price:'28,500',city:'مسقط',time:'منذ ساعة'},
+  {emoji:'🏠',cat:'عقارات',title:'شقة 3 غرف للبيع - حي الخوير',price:'45,000',city:'مسقط',time:'منذ 3 ساعات'},
+  {emoji:'📱',cat:'إلكترونيات',title:'آيفون 15 برو ماكس 256GB جديد',price:'480',city:'صلالة',time:'منذ 5 ساعات'},
+  {emoji:'🛋️',cat:'أثاث',title:'طقم غرفة نوم مودرن كامل',price:'650',city:'مسقط',time:'منذ أمس'},
+  {emoji:'🏍️',cat:'دراجات',title:'هوندا CBR 600 موديل 2021',price:'2,200',city:'نزوى',time:'منذ يومين'},
+  {emoji:'💻',cat:'إلكترونيات',title:'ماك بوك M3 Pro - 16 انش',price:'1,100',city:'مسقط',time:'منذ يومين'},
+  {emoji:'💼',cat:'وظائف',title:'مطلوب محاسب ذو خبرة - شركة تجارية',price:'تواصل',city:'مسقط',time:'منذ 3 أيام'},
+  {emoji:'🐕',cat:'حيوانات',title:'جروبي هاسكي صغير للبيع',price:'120',city:'مسقط',time:'منذ 4 أيام'},
+];
+
+function renderListings(data) {
+  const grid = document.getElementById('listingsGrid');
+  if (!data.length) {
+    grid.innerHTML = `<div style="grid-column:1/-1;text-align:center;padding:40px;color:var(--gray)"><div style="font-size:48px;margin-bottom:12px">🔍</div><p style="font-size:15px;font-weight:600">لا توجد إعلانات في هذه الفئة</p></div>`;
+    return;
+  }
+  grid.innerHTML = data.map((l,i) => `
+    <a href="#" class="listing-card fade-up" style="animation-delay:${i*0.07}s">
+      <div class="listing-thumb">${l.emoji}
+        <button class="fav-btn" onclick="toggleFav(event,this)">🤍</button>
+        <span class="listing-cat-tag">${l.cat}</span>
+      </div>
+      <div class="listing-body">
+        <div class="listing-price">${l.price} ر.ع</div>
+        <div class="listing-title">${l.title}</div>
+        <div class="listing-meta"><span>📍 ${l.city}</span><span>🕐 ${l.time}</span></div>
+      </div>
+    </a>`).join('');
+}
+
+function toggleFav(e,btn){e.preventDefault();btn.textContent=btn.textContent==='🤍'?'❤️':'🤍';btn.style.transform='scale(1.4)';setTimeout(()=>btn.style.transform='',300);}
+function filterCat(e,cat){e.preventDefault();const f=allListings.filter(l=>l.cat===cat);document.getElementById('listingsTitle').textContent=`إعلانات ${cat}`;renderListings(f);document.querySelectorAll('.section')[1].scrollIntoView({behavior:'smooth'});}
+function showAll(e){e.preventDefault();document.getElementById('listingsTitle').textContent='أحدث الإعلانات';renderListings(allListings);}
+function doSearch(){const q=document.getElementById('heroSearch').value.trim().toLowerCase();if(!q){renderListings(allListings);document.getElementById('listingsTitle').textContent='أحدث الإعلانات';return;}const r=allListings.filter(l=>l.title.toLowerCase().includes(q)||l.cat.toLowerCase().includes(q)||l.city.toLowerCase().includes(q));document.getElementById('listingsTitle').textContent=`نتائج: "${q}"`;renderListings(r);}
+function openPostModal(){document.getElementById('postModal').classList.add('open');document.body.style.overflow='hidden';}
+function openLoginModal(){document.getElementById('loginModal').classList.add('open');document.body.style.overflow='hidden';}
+function closeModal(id){document.getElementById(id).classList.remove('open');document.body.style.overflow='';}
+function closeOnOutside(e,id){if(e.target===document.getElementById(id))closeModal(id);}
+function showToast(msg){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),3200);}
+function submitAd(){
+  const title=document.getElementById('adTitle').value.trim();
+  const cat=document.getElementById('adCat').value;
+  const price=document.getElementById('adPrice').value;
+  const city=document.getElementById('adCity').value.trim();
+  if(!title||!cat){showToast('⚠️ يرجى ملء عنوان الإعلان والفئة');return;}
+  allListings.unshift({emoji:'📦',cat,title,price:price?Number(price).toLocaleString('ar-SA'):'تواصل',city:city||'مسقط',time:'الآن'});
+  renderListings(allListings);
+  document.getElementById('listingsTitle').textContent='أحدث الإعلانات';
+  animateCounter();
+  closeModal('postModal');
+  showToast('✅ تم نشر إعلانك بنجاح!');
+}
+function submitLogin(){closeModal('loginModal');showToast('👋 مرحباً بك في السوق الذكي!');}
+function setNav(e,el){e.preventDefault();document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));el.classList.add('active');}
+function animateCounter(){let n=0,target=allListings.length;const el=document.getElementById('counter1');const step=()=>{if(n<target){n++;el.textContent=n;requestAnimationFrame(step);}};step();}
+
+renderListings(allListings);
+animateCounter();
+</script>
+</body>
+</html>
